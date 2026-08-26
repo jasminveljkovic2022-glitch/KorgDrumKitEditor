@@ -2,19 +2,15 @@ from pathlib import Path
 from typing import Optional
 
 from .models import DrumInstrument, DrumKit
-from .midi import midi_note_to_name
+from .midi import midi_to_note
 
 
 class KorgSetParser:
     """
-    Parser za Korg PA SET podatke.
+    Osnovni parser za Korg PA300 SET podatke.
 
-    Važno:
-    Ne pretpostavlja unaprijed da je Kick uvijek na C1,
-    Snare uvijek na D1 itd.
-
-    Raspored instrumenata mora se dobiti iz konkretnog
-    SET/PCG/DrumKit podatka.
+    Raspored drum instrumenata nije fiksan.
+    Svaki SET može imati drugačiji MIDI raspored.
     """
 
     def __init__(self, set_path: str | Path):
@@ -22,12 +18,12 @@ class KorgSetParser:
 
     def parse(self) -> list[DrumKit]:
         """
-        Parsira SET i vraća pronađene DrumKit objekte.
+        Učitava Korg .SET datoteku.
 
-        Trenutno je ovo osnovna struktura.
-        Stvarni binarni PA300 parser dodajemo nakon što
-        utvrdimo strukturu podataka iz stvarnog SET-a.
+        Stvarni binarni parser bit će dodan nakon što
+        definiramo strukturu Korg SET podataka.
         """
+
         if not self.set_path.exists():
             raise FileNotFoundError(
                 f"SET file does not exist: {self.set_path}"
@@ -49,11 +45,16 @@ class KorgSetParser:
         bank_lsb: Optional[int] = None,
     ) -> DrumInstrument:
         """
-        Kreira instrument koristeći stvarni MIDI broj note.
+        Kreira instrument i automatski određuje naziv MIDI note.
+
+        Primjer:
+        MIDI 24 -> C1
+        MIDI 36 -> C2
         """
+
         return DrumInstrument(
             midi_note=midi_note,
-            note_name=midi_note_to_name(midi_note),
+            note_name=midi_to_note(midi_note),
             name=name,
             program=program,
             bank_msb=bank_msb,

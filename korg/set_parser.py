@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from hashlib import sha256
 from pathlib import Path
 from shutil import copyfile
@@ -13,29 +14,37 @@ class KorgSetParser:
     """
     PA300 SET / PCG binary parser and inspector.
 
-    #29
+    #30
 
-    Nastavak na #28.
+    Nastavak na #29.
 
     Dodano:
-    - analiza susjednih byteova
-    - analiza byte parova
-    - analiza byte tripleta
-    - detekcija sekvencijalnih MIDI vrijednosti
-    - detekcija MIDI raspona
-    - analiza pozicijske stabilnosti
-    - analiza korelacije između Drum Kitova
+    - cross-kit differential analysis
+    - analiza promjena između Drum Kitova
+    - analiza vrijednosnih prijelaza
+    - analiza zajedničkih promjena byteova
+    - analiza strukturalne stabilnosti
+    - analiza MIDI plausibility
+    - analiza mapping plausibility
+    - odvojeni confidence score:
+        * structural_confidence
+        * midi_confidence
+        * mapping_confidence
+    - evidence za svaki kandidat
+    - poboljšano rangiranje mogućih MIDI mapping pozicija
     - rangiranje mogućih mapping blokova
-    - analiza mogućih MIDI mapping područja
-    - prošireni MIDI mapping report
+    - cross-kit comparison report
+    - #29 funkcije ostaju kompatibilne
 
     VAŽNO:
     Parser NE mijenja originalni PCG/SET fajl.
 
-    MIDI mapping kandidati nisu automatski potvrđeni kao
-    stvarni Korg Drum Kit mapping.
+    MIDI vrijednost 0-127 sama po sebi NIJE dokaz
+    da se radi o MIDI mapping podatku.
 
-    Analiza predstavlja strukturalnu analizu binarnog fajla.
+    Svi rezultati predstavljaju strukturalnu analizu
+    binarnog fajla i moraju se potvrditi stvarnim
+    PA300 podacima prije automatskog editiranja.
     """
 
     KORF_MAGIC = b"KORF"
@@ -653,6 +662,10 @@ class KorgSetParser:
                         "second_value": second_byte,
                         "second_hex": (
                             f"{second_byte:02X}"
+                        ),
+                        "delta": (
+                            second_byte
+                            - first_byte
                         ),
                     }
                 )
@@ -1358,7 +1371,7 @@ class KorgSetParser:
         ]
 
     # ---------------------------------------------------------------
-    # #29 Adjacent byte analysis
+    # Adjacent byte analysis
     # ---------------------------------------------------------------
 
     @staticmethod
@@ -1401,10 +1414,7 @@ class KorgSetParser:
             self.DRUM_KIT_RECORD_SIZE - 1
         ):
 
-            pairs: dict[
-                tuple[int, int],
-                list[dict]
-            ] = {}
+            pairs = {}
 
             for record in records:
 
@@ -1433,21 +1443,14 @@ class KorgSetParser:
 
             pair_details = []
 
-            for (
-                first,
-                second,
-            ) in sorted(pairs):
+            for first, second in sorted(pairs):
 
                 pair_details.append(
                     {
                         "first": first,
                         "second": second,
-                        "first_hex": (
-                            f"{first:02X}"
-                        ),
-                        "second_hex": (
-                            f"{second:02X}"
-                        ),
+                        "first_hex": f"{first:02X}",
+                        "second_hex": f"{second:02X}",
                         "key": self._pair_key(
                             first,
                             second,
@@ -1471,15 +1474,11 @@ class KorgSetParser:
 
             result.append(
                 {
-                    "relative_offset": (
-                        relative_offset
-                    ),
+                    "relative_offset": relative_offset,
                     "next_offset": (
                         relative_offset + 1
                     ),
-                    "unique_pair_count": (
-                        len(pairs)
-                    ),
+                    "unique_pair_count": len(pairs),
                     "pairs": pair_details,
                 }
             )
@@ -1503,10 +1502,7 @@ class KorgSetParser:
             self.DRUM_KIT_RECORD_SIZE - 2
         ):
 
-            triplets: dict[
-                tuple[int, int, int],
-                list[dict]
-            ] = {}
+            triplets = {}
 
             for record in records:
 
@@ -1540,26 +1536,18 @@ class KorgSetParser:
 
             details = []
 
-            for (
-                first,
-                second,
-                third,
-            ) in sorted(triplets):
+            for first, second, third in sorted(
+                triplets
+            ):
 
                 details.append(
                     {
                         "first": first,
                         "second": second,
                         "third": third,
-                        "first_hex": (
-                            f"{first:02X}"
-                        ),
-                        "second_hex": (
-                            f"{second:02X}"
-                        ),
-                        "third_hex": (
-                            f"{third:02X}"
-                        ),
+                        "first_hex": f"{first:02X}",
+                        "second_hex": f"{second:02X}",
+                        "third_hex": f"{third:02X}",
                         "key": self._triplet_key(
                             first,
                             second,
@@ -1586,11 +1574,9 @@ class KorgSetParser:
 
             result.append(
                 {
-                    "relative_offset": (
-                        relative_offset
-                    ),
-                    "unique_triplet_count": (
-                        len(triplets)
+                    "relative_offset": relative_offset,
+                    "unique_triplet_count": len(
+                        triplets
                     ),
                     "triplets": details,
                 }
@@ -1663,39 +1649,21 @@ class KorgSetParser:
 
                             patterns.append(
                                 {
-                                    "index": (
-                                        record[
-                                            "index"
-                                        ]
-                                    ),
-                                    "name": (
-                                        record[
-                                            "name"
-                                        ]
-                                    ),
-                                    "start_relative_offset": (
-                                        start
-                                    ),
-                                    "end_relative_offset": (
-                                        end
-                                    ),
-                                    "length": (
-                                        len(values)
-                                    ),
-                                    "values": (
-                                        values.copy()
-                                    ),
+                                    "index": record["index"],
+                                    "name": record["name"],
+                                    "start_relative_offset": start,
+                                    "end_relative_offset": end,
+                                    "length": len(values),
+                                    "values": values.copy(),
                                     "hex_values": [
                                         f"{value:02X}"
-                                        for value
-                                        in values
+                                        for value in values
                                     ],
                                     "note_names": [
                                         midi_to_note(
                                             value
                                         )
-                                        for value
-                                        in values
+                                        for value in values
                                     ],
                                 }
                             )
@@ -1762,11 +1730,8 @@ class KorgSetParser:
                     ),
                     "values": midi_values,
                     "note_names": [
-                        midi_to_note(
-                            value
-                        )
-                        for value
-                        in midi_values
+                        midi_to_note(value)
+                        for value in midi_values
                     ],
                 }
             )
@@ -1824,12 +1789,10 @@ class KorgSetParser:
 
             result.append(
                 {
-                    "relative_offset": (
-                        relative_offset
-                    ),
+                    "relative_offset": relative_offset,
                     "fixed": fixed,
-                    "unique_value_count": (
-                        len(unique_values)
+                    "unique_value_count": len(
+                        unique_values
                     ),
                     "stability_score": round(
                         stability_score,
@@ -1909,15 +1872,9 @@ class KorgSetParser:
 
                     result.append(
                         {
-                            "first_relative_offset": (
-                                first_offset
-                            ),
-                            "second_relative_offset": (
-                                second_offset
-                            ),
-                            "same_value_count": (
-                                same_count
-                            ),
+                            "first_relative_offset": first_offset,
+                            "second_relative_offset": second_offset,
+                            "same_value_count": same_count,
                             "total_records": total,
                             "correlation": round(
                                 correlation,
@@ -2005,16 +1962,10 @@ class KorgSetParser:
 
                         blocks.append(
                             {
-                                "start_relative_offset": (
-                                    start
-                                ),
-                                "end_relative_offset": (
-                                    end
-                                ),
+                                "start_relative_offset": start,
+                                "end_relative_offset": end,
                                 "length": length,
-                                "positions": (
-                                    block_positions
-                                ),
+                                "positions": block_positions,
                             }
                         )
 
@@ -2045,9 +1996,7 @@ class KorgSetParser:
                         "start_relative_offset": start,
                         "end_relative_offset": end,
                         "length": length,
-                        "positions": (
-                            block_positions
-                        ),
+                        "positions": block_positions,
                     }
                 )
 
@@ -2186,6 +2135,1058 @@ class KorgSetParser:
 
         return ranked
 
+    # ===============================================================
+    # #30 CROSS-KIT DIFFERENTIAL ANALYSIS
+    # ===============================================================
+
+    def analyze_cross_kit_differences(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return []
+
+        result = []
+
+        for first_index in range(
+            len(records)
+        ):
+
+            for second_index in range(
+                first_index + 1,
+                len(records),
+            ):
+
+                first = records[first_index]
+                second = records[second_index]
+
+                differences = []
+
+                for relative_offset in range(
+                    self.DRUM_KIT_RECORD_SIZE
+                ):
+
+                    first_value = first["raw"][
+                        relative_offset
+                    ]
+
+                    second_value = second["raw"][
+                        relative_offset
+                    ]
+
+                    if first_value != second_value:
+
+                        differences.append(
+                            {
+                                "relative_offset": (
+                                    relative_offset
+                                ),
+                                "first_value": (
+                                    first_value
+                                ),
+                                "second_value": (
+                                    second_value
+                                ),
+                                "first_hex": (
+                                    f"{first_value:02X}"
+                                ),
+                                "second_hex": (
+                                    f"{second_value:02X}"
+                                ),
+                                "delta": (
+                                    second_value
+                                    - first_value
+                                ),
+                                "first_midi_note": (
+                                    first_value
+                                    if self.is_midi_value(
+                                        first_value
+                                    )
+                                    else None
+                                ),
+                                "second_midi_note": (
+                                    second_value
+                                    if self.is_midi_value(
+                                        second_value
+                                    )
+                                    else None
+                                ),
+                            }
+                        )
+
+                result.append(
+                    {
+                        "first_index": first["index"],
+                        "first_name": first["name"],
+                        "second_index": second["index"],
+                        "second_name": second["name"],
+                        "different_byte_count": len(
+                            differences
+                        ),
+                        "identical_byte_count": (
+                            self.DRUM_KIT_RECORD_SIZE
+                            - len(differences)
+                        ),
+                        "difference_ratio": round(
+                            len(differences)
+                            / self.DRUM_KIT_RECORD_SIZE,
+                            4,
+                        ),
+                        "differences": differences,
+                    }
+                )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Byte change frequency
+    # ---------------------------------------------------------------
+
+    def analyze_byte_change_frequency(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return []
+
+        result = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            changes = 0
+            comparisons = 0
+            deltas = []
+
+            for first_index in range(
+                len(records)
+            ):
+
+                for second_index in range(
+                    first_index + 1,
+                    len(records),
+                ):
+
+                    first_value = records[
+                        first_index
+                    ]["raw"][relative_offset]
+
+                    second_value = records[
+                        second_index
+                    ]["raw"][relative_offset]
+
+                    comparisons += 1
+
+                    if first_value != second_value:
+
+                        changes += 1
+
+                        deltas.append(
+                            second_value
+                            - first_value
+                        )
+
+            change_ratio = (
+                changes / comparisons
+                if comparisons
+                else 0.0
+            )
+
+            result.append(
+                {
+                    "relative_offset": relative_offset,
+                    "changes": changes,
+                    "comparisons": comparisons,
+                    "change_ratio": round(
+                        change_ratio,
+                        4,
+                    ),
+                    "average_delta": (
+                        round(
+                            sum(deltas)
+                            / len(deltas),
+                            4,
+                        )
+                        if deltas
+                        else 0.0
+                    ),
+                    "min_delta": (
+                        min(deltas)
+                        if deltas
+                        else 0
+                    ),
+                    "max_delta": (
+                        max(deltas)
+                        if deltas
+                        else 0
+                    ),
+                }
+            )
+
+        result.sort(
+            key=lambda item: (
+                item["change_ratio"],
+                abs(item["average_delta"]),
+            ),
+            reverse=True,
+        )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Value transition analysis
+    # ---------------------------------------------------------------
+
+    def analyze_byte_value_transitions(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return []
+
+        result = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            transitions = Counter()
+
+            for first_index in range(
+                len(records)
+            ):
+
+                for second_index in range(
+                    first_index + 1,
+                    len(records),
+                ):
+
+                    first_value = records[
+                        first_index
+                    ]["raw"][relative_offset]
+
+                    second_value = records[
+                        second_index
+                    ]["raw"][relative_offset]
+
+                    if first_value != second_value:
+
+                        transitions[
+                            (
+                                first_value,
+                                second_value,
+                            )
+                        ] += 1
+
+            transition_details = []
+
+            for (
+                first_value,
+                second_value,
+            ), count in transitions.most_common():
+
+                transition_details.append(
+                    {
+                        "first_value": first_value,
+                        "second_value": second_value,
+                        "first_hex": (
+                            f"{first_value:02X}"
+                        ),
+                        "second_hex": (
+                            f"{second_value:02X}"
+                        ),
+                        "delta": (
+                            second_value
+                            - first_value
+                        ),
+                        "count": count,
+                    }
+                )
+
+            result.append(
+                {
+                    "relative_offset": relative_offset,
+                    "transition_count": len(
+                        transitions
+                    ),
+                    "transitions": transition_details,
+                }
+            )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Co-changing byte positions
+    # ---------------------------------------------------------------
+
+    def analyze_cochanging_positions(
+        self,
+        minimum_correlation: float = 0.75,
+    ) -> list[dict]:
+
+        if not 0.0 <= minimum_correlation <= 1.0:
+            raise ValueError(
+                "minimum_correlation must be between 0 and 1"
+            )
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return []
+
+        result = []
+
+        for first_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            first_changes = []
+
+            for first_index in range(
+                len(records) - 1
+            ):
+
+                first_changes.append(
+                    records[
+                        first_index
+                    ]["raw"][first_offset]
+                    !=
+                    records[
+                        first_index + 1
+                    ]["raw"][first_offset]
+                )
+
+            for second_offset in range(
+                first_offset + 1,
+                self.DRUM_KIT_RECORD_SIZE,
+            ):
+
+                second_changes = []
+
+                for first_index in range(
+                    len(records) - 1
+                ):
+
+                    second_changes.append(
+                        records[
+                            first_index
+                        ]["raw"][second_offset]
+                        !=
+                        records[
+                            first_index + 1
+                        ]["raw"][second_offset]
+                    )
+
+                same = sum(
+                    first == second
+                    for first, second
+                    in zip(
+                        first_changes,
+                        second_changes,
+                    )
+                )
+
+                total = len(first_changes)
+
+                correlation = (
+                    same / total
+                    if total
+                    else 0.0
+                )
+
+                if correlation >= minimum_correlation:
+
+                    result.append(
+                        {
+                            "first_relative_offset": (
+                                first_offset
+                            ),
+                            "second_relative_offset": (
+                                second_offset
+                            ),
+                            "same_change_pattern_count": (
+                                same
+                            ),
+                            "total_transitions": total,
+                            "correlation": round(
+                                correlation,
+                                4,
+                            ),
+                        }
+                    )
+
+        result.sort(
+            key=lambda item: item[
+                "correlation"
+            ],
+            reverse=True,
+        )
+
+        return result
+
+    # ===============================================================
+    # #30 CONFIDENCE ANALYSIS
+    # ===============================================================
+
+    @staticmethod
+    def _clamp_score(
+        value: float,
+    ) -> float:
+
+        return max(
+            0.0,
+            min(
+                100.0,
+                value,
+            ),
+        )
+
+    def calculate_structural_confidence(
+        self,
+        relative_offset: int,
+    ) -> dict:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if not records:
+            return {
+                "relative_offset": relative_offset,
+                "structural_confidence": 0.0,
+                "evidence": [],
+            }
+
+        values = [
+            record["raw"][relative_offset]
+            for record in records
+        ]
+
+        unique_values = set(values)
+
+        change_ratio = (
+            len(
+                [
+                    value
+                    for value in values
+                    if value != values[0]
+                ]
+            )
+            / len(values)
+            if values
+            else 0.0
+        )
+
+        stability = (
+            max(
+                values.count(value)
+                for value
+                in unique_values
+            )
+            / len(values)
+            if values
+            else 0.0
+        )
+
+        candidate_count = len(
+            unique_values
+        )
+
+        variability_score = min(
+            candidate_count / 8.0,
+            1.0,
+        )
+
+        change_score = change_ratio
+
+        structural_confidence = (
+            variability_score * 40.0
+            + change_score * 40.0
+            + (1.0 - stability) * 20.0
+        )
+
+        evidence = []
+
+        if candidate_count > 1:
+            evidence.append(
+                "value_changes_between_drum_kits"
+            )
+
+        if change_ratio >= 0.50:
+            evidence.append(
+                "high_cross_kit_variability"
+            )
+
+        if candidate_count >= 3:
+            evidence.append(
+                "multiple_distinct_values"
+            )
+
+        return {
+            "relative_offset": relative_offset,
+            "unique_value_count": candidate_count,
+            "change_ratio": round(
+                change_ratio,
+                4,
+            ),
+            "stability": round(
+                stability,
+                4,
+            ),
+            "structural_confidence": round(
+                self._clamp_score(
+                    structural_confidence
+                ),
+                2,
+            ),
+            "evidence": evidence,
+        }
+
+    # ---------------------------------------------------------------
+    # MIDI plausibility
+    # ---------------------------------------------------------------
+
+    def calculate_midi_confidence(
+        self,
+        relative_offset: int,
+    ) -> dict:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if not records:
+            return {
+                "relative_offset": relative_offset,
+                "midi_confidence": 0.0,
+                "evidence": [],
+            }
+
+        values = [
+            record["raw"][relative_offset]
+            for record in records
+        ]
+
+        midi_values = [
+            value
+            for value in values
+            if self.is_midi_value(value)
+        ]
+
+        midi_ratio = (
+            len(midi_values)
+            / len(values)
+            if values
+            else 0.0
+        )
+
+        unique_midi_values = set(
+            midi_values
+        )
+
+        range_scores = [
+            self._midi_range_score(
+                value
+            )
+            for value in midi_values
+        ]
+
+        average_range_score = (
+            sum(range_scores)
+            / len(range_scores)
+            if range_scores
+            else 0.0
+        )
+
+        variation_score = (
+            min(
+                len(unique_midi_values)
+                / 8.0,
+                1.0,
+            )
+        )
+
+        confidence = (
+            midi_ratio * 45.0
+            + average_range_score * 35.0
+            + variation_score * 20.0
+        )
+
+        evidence = []
+
+        if midi_ratio == 1.0:
+            evidence.append(
+                "all_values_are_midi_range"
+            )
+
+        if average_range_score >= 0.9:
+            evidence.append(
+                "values_are_in_common_midi_note_range"
+            )
+
+        if len(unique_midi_values) >= 2:
+            evidence.append(
+                "multiple_midi_values_present"
+            )
+
+        return {
+            "relative_offset": relative_offset,
+            "midi_value_ratio": round(
+                midi_ratio,
+                4,
+            ),
+            "unique_midi_value_count": len(
+                unique_midi_values
+            ),
+            "average_midi_range_score": round(
+                average_range_score,
+                4,
+            ),
+            "midi_confidence": round(
+                self._clamp_score(
+                    confidence
+                ),
+                2,
+            ),
+            "evidence": evidence,
+        }
+
+    # ---------------------------------------------------------------
+    # Mapping plausibility
+    # ---------------------------------------------------------------
+
+    def calculate_mapping_confidence(
+        self,
+        relative_offset: int,
+    ) -> dict:
+
+        structural = (
+            self.calculate_structural_confidence(
+                relative_offset
+            )
+        )
+
+        midi = (
+            self.calculate_midi_confidence(
+                relative_offset
+            )
+        )
+
+        position_analysis = (
+            self.analyze_midi_candidates()
+        )
+
+        position = next(
+            (
+                item
+                for item
+                in position_analysis
+                if item[
+                    "relative_offset"
+                ] == relative_offset
+            ),
+            None,
+        )
+
+        candidate_count = (
+            position[
+                "candidate_count"
+            ]
+            if position
+            else 0
+        )
+
+        variability_score = min(
+            candidate_count / 8.0,
+            1.0,
+        )
+
+        block_bonus = 0.0
+
+        blocks = (
+            self.find_possible_midi_mapping_blocks(
+                minimum_length=2
+            )
+        )
+
+        for block in blocks:
+
+            if (
+                block[
+                    "start_relative_offset"
+                ]
+                <= relative_offset
+                <=
+                block[
+                    "end_relative_offset"
+                ]
+            ):
+                block_bonus = 15.0
+                break
+
+        mapping_confidence = (
+            structural[
+                "structural_confidence"
+            ] * 0.40
+            + midi[
+                "midi_confidence"
+            ] * 0.40
+            + variability_score * 20.0
+            + block_bonus
+        )
+
+        mapping_confidence = min(
+            mapping_confidence,
+            100.0,
+        )
+
+        evidence = []
+
+        evidence.extend(
+            structural["evidence"]
+        )
+
+        evidence.extend(
+            midi["evidence"]
+        )
+
+        if candidate_count > 1:
+            evidence.append(
+                "position_has_multiple_values_across_kits"
+            )
+
+        if block_bonus:
+            evidence.append(
+                "position_is_inside_possible_mapping_block"
+            )
+
+        return {
+            "relative_offset": relative_offset,
+            "candidate_count": candidate_count,
+            "structural_confidence": structural[
+                "structural_confidence"
+            ],
+            "midi_confidence": midi[
+                "midi_confidence"
+            ],
+            "mapping_confidence": round(
+                self._clamp_score(
+                    mapping_confidence
+                ),
+                2,
+            ),
+            "evidence": list(
+                dict.fromkeys(
+                    evidence
+                )
+            ),
+        }
+
+    # ---------------------------------------------------------------
+    # Complete confidence report
+    # ---------------------------------------------------------------
+
+    def build_confidence_report(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if not records:
+            return []
+
+        report = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            structural = (
+                self.calculate_structural_confidence(
+                    relative_offset
+                )
+            )
+
+            midi = (
+                self.calculate_midi_confidence(
+                    relative_offset
+                )
+            )
+
+            mapping = (
+                self.calculate_mapping_confidence(
+                    relative_offset
+                )
+            )
+
+            values = [
+                record["raw"][relative_offset]
+                for record in records
+            ]
+
+            report.append(
+                {
+                    "relative_offset": relative_offset,
+                    "values": values,
+                    "hex_values": [
+                        f"{value:02X}"
+                        for value in values
+                    ],
+                    "unique_value_count": len(
+                        set(values)
+                    ),
+                    "structural_confidence": (
+                        structural[
+                            "structural_confidence"
+                        ]
+                    ),
+                    "midi_confidence": (
+                        midi[
+                            "midi_confidence"
+                        ]
+                    ),
+                    "mapping_confidence": (
+                        mapping[
+                            "mapping_confidence"
+                        ]
+                    ),
+                    "evidence": mapping[
+                        "evidence"
+                    ],
+                }
+            )
+
+        report.sort(
+            key=lambda item: (
+                item[
+                    "mapping_confidence"
+                ],
+                item[
+                    "midi_confidence"
+                ],
+                item[
+                    "structural_confidence"
+                ],
+            ),
+            reverse=True,
+        )
+
+        for rank, item in enumerate(
+            report,
+            start=1,
+        ):
+
+            item["rank"] = rank
+
+        return report
+
+    # ---------------------------------------------------------------
+    # High confidence mapping candidates
+    # ---------------------------------------------------------------
+
+    def find_high_confidence_mapping_positions(
+        self,
+        minimum_confidence: float = 70.0,
+    ) -> list[dict]:
+
+        if not 0 <= minimum_confidence <= 100:
+            raise ValueError(
+                "minimum_confidence must be between 0 and 100"
+            )
+
+        report = (
+            self.build_confidence_report()
+        )
+
+        return [
+            item
+            for item in report
+            if item[
+                "mapping_confidence"
+            ] >= minimum_confidence
+        ]
+
+    # ---------------------------------------------------------------
+    # Top mapping candidates
+    # ---------------------------------------------------------------
+
+    def get_top_mapping_candidates(
+        self,
+        top_n: int = 20,
+    ) -> list[dict]:
+
+        if top_n < 1:
+            raise ValueError(
+                "top_n must be greater than 0"
+            )
+
+        report = (
+            self.build_confidence_report()
+        )
+
+        return report[:top_n]
+
+    # ---------------------------------------------------------------
+    # Mapping candidates for each Drum Kit
+    # ---------------------------------------------------------------
+
+    def build_drum_kit_mapping_confidence(
+        self,
+        index: int,
+    ) -> dict:
+
+        record = (
+            self.get_drum_kit_name_record(
+                index
+            )
+        )
+
+        confidence_report = (
+            self.build_confidence_report()
+        )
+
+        candidates = []
+
+        for item in confidence_report:
+
+            relative_offset = item[
+                "relative_offset"
+            ]
+
+            value = record["raw"][
+                relative_offset
+            ]
+
+            candidates.append(
+                {
+                    "rank": item["rank"],
+                    "relative_offset": (
+                        relative_offset
+                    ),
+                    "absolute_offset": (
+                        record["offset"]
+                        + relative_offset
+                    ),
+                    "value": value,
+                    "hex": f"{value:02X}",
+                    "midi_note": (
+                        value
+                        if self.is_midi_value(
+                            value
+                        )
+                        else None
+                    ),
+                    "note_name": (
+                        midi_to_note(value)
+                        if self.is_midi_value(
+                            value
+                        )
+                        else None
+                    ),
+                    "structural_confidence": (
+                        item[
+                            "structural_confidence"
+                        ]
+                    ),
+                    "midi_confidence": (
+                        item[
+                            "midi_confidence"
+                        ]
+                    ),
+                    "mapping_confidence": (
+                        item[
+                            "mapping_confidence"
+                        ]
+                    ),
+                    "evidence": item[
+                        "evidence"
+                    ],
+                }
+            )
+
+        candidates.sort(
+            key=lambda item: (
+                item[
+                    "mapping_confidence"
+                ],
+                item[
+                    "midi_confidence"
+                ],
+            ),
+            reverse=True,
+        )
+
+        return {
+            "index": record["index"],
+            "name": record["name"],
+            "offset": record["offset"],
+            "mapping_candidates": candidates,
+        }
+
+    def build_all_drum_kit_mapping_confidence(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        return [
+            self.build_drum_kit_mapping_confidence(
+                record["index"]
+            )
+            for record in records
+        ]
+
+    # ===============================================================
+    # #30 ADVANCED STRUCTURAL REPORT
+    # ===============================================================
+
+    def build_advanced_structural_report(
+        self,
+    ) -> dict:
+
+        return {
+            "cross_kit_differences": (
+                self.analyze_cross_kit_differences()
+            ),
+            "byte_change_frequency": (
+                self.analyze_byte_change_frequency()
+            ),
+            "byte_value_transitions": (
+                self.analyze_byte_value_transitions()
+            ),
+            "cochanging_positions": (
+                self.analyze_cochanging_positions()
+            ),
+            "confidence_report": (
+                self.build_confidence_report()
+            ),
+            "top_mapping_candidates": (
+                self.get_top_mapping_candidates()
+            ),
+            "high_confidence_mapping_positions": (
+                self.find_high_confidence_mapping_positions()
+            ),
+        }
+
     # ---------------------------------------------------------------
     # #29 structural report
     # ---------------------------------------------------------------
@@ -2263,17 +3264,17 @@ class KorgSetParser:
             "record_size": (
                 self.DRUM_KIT_RECORD_SIZE
             ),
-            "positions_analyzed": (
-                len(analysis)
+            "positions_analyzed": len(
+                analysis
             ),
-            "positions_with_midi_candidates": (
-                len(positions_with_candidates)
+            "positions_with_midi_candidates": len(
+                positions_with_candidates
             ),
-            "variable_midi_positions": (
-                len(variable_positions)
+            "variable_midi_positions": len(
+                variable_positions
             ),
-            "unique_midi_values": (
-                len(unique_midi_values)
+            "unique_midi_values": len(
+                unique_midi_values
             ),
             "midi_values": sorted(
                 unique_midi_values
@@ -2456,6 +3457,9 @@ class KorgSetParser:
             "structural_mapping": (
                 self.build_structural_mapping_report()
             ),
+            "advanced_structural_analysis": (
+                self.build_advanced_structural_report()
+            ),
         }
 
     # ---------------------------------------------------------------
@@ -2530,6 +3534,15 @@ class KorgSetParser:
             "structural_mapping_report": (
                 self.build_structural_mapping_report()
             ),
+            "advanced_structural_report": (
+                self.build_advanced_structural_report()
+            ),
+            "confidence_report": (
+                self.build_confidence_report()
+            ),
+            "high_confidence_mapping_positions": (
+                self.find_high_confidence_mapping_positions()
+            ),
         }
 
     # ---------------------------------------------------------------
@@ -2591,6 +3604,12 @@ class KorgSetParser:
             ),
             "structural_mapping_report": (
                 self.build_structural_mapping_report()
+            ),
+            "advanced_structural_report": (
+                self.build_advanced_structural_report()
+            ),
+            "confidence_report": (
+                self.build_confidence_report()
             ),
         }
 

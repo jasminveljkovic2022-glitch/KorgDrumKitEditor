@@ -13,27 +13,36 @@ class KorgSetParser:
     """
     PA300 SET / PCG binary parser and inspector.
 
-    #24
+    #25
 
-    Nastavak na #23.
+    Nastavak na #24.
 
     Dodano:
-    - detaljna MIDI kandidat analiza
-    - grupisanje mogućih MIDI vrijednosti
-    - pronalaženje byte pozicija koje mogu predstavljati MIDI note
-    - pregled kandidata po Drum Kitu
-    - automatski sažetak MIDI kandidata
+    - MIDI candidate scoring
+    - rangiranje mogućih mapping byte pozicija
+    - analiza koliko se vrijednosti mijenjaju između Drum Kitova
+    - analiza stabilnosti byte pozicije
+    - prepoznavanje MIDI raspona
+    - detaljan pregled mapping kandidata
+    - automatski sažetak najboljih kandidata
 
     VAŽNO:
     Parser NE mijenja originalni PCG/SET fajl.
 
     MIDI kandidati nisu automatski potvrđeni kao stvarni
     Korg Drum Kit mapping.
+
+    Score je samo pomoć za pronalaženje mjesta koja vrijedi
+    dalje istraživati.
     """
 
     KORF_MAGIC = b"KORF"
     KORF_HEADER_SIZE = 13
     DRUM_KIT_RECORD_SIZE = 24
+
+    # ---------------------------------------------------------------
+    # Initialization
+    # ---------------------------------------------------------------
 
     def __init__(self, set_path: str | Path):
         self.set_path = Path(set_path)
@@ -495,24 +504,18 @@ class KorgSetParser:
 
         for relative_offset, byte in enumerate(raw):
 
-            if 0 <= byte <= 127:
+            candidate = self.midi_candidate(
+                value=byte,
+                relative_offset=relative_offset,
+                absolute_offset=(
+                    record["offset"]
+                    + relative_offset
+                ),
+            )
 
+            if candidate is not None:
                 midi_candidates.append(
-                    {
-                        "relative_offset": (
-                            relative_offset
-                        ),
-                        "absolute_offset": (
-                            record["offset"]
-                            + relative_offset
-                        ),
-                        "value": byte,
-                        "hex": f"{byte:02X}",
-                        "midi_note": byte,
-                        "note_name": midi_to_note(
-                            byte
-                        ),
-                    }
+                    candidate
                 )
 
         return {
@@ -729,7 +732,7 @@ class KorgSetParser:
                     "drum_kits": values[value],
                 }
 
-                if 0 <= value <= 127:
+                if self.is_midi_value(value):
 
                     item["midi_note"] = value
                     item["note_name"] = (
@@ -802,18 +805,13 @@ class KorgSetParser:
         }
 
     # ---------------------------------------------------------------
-    # #24 MIDI mapping analysis
+    # MIDI mapping analysis
     # ---------------------------------------------------------------
 
     @staticmethod
     def is_midi_value(
         value: int,
     ) -> bool:
-        """
-        Provjerava da li vrijednost može biti
-        validna MIDI note vrijednost.
-        """
-
         return 0 <= value <= 127
 
     @staticmethod
@@ -822,9 +820,6 @@ class KorgSetParser:
         relative_offset: int,
         absolute_offset: Optional[int] = None,
     ) -> Optional[dict]:
-        """
-        Pretvara byte u MIDI kandidat.
-        """
 
         if not KorgSetParser.is_midi_value(value):
             return None
@@ -846,12 +841,6 @@ class KorgSetParser:
         self,
         index: int,
     ) -> list[dict]:
-        """
-        Pronalazi sve byte vrijednosti 0-127
-        unutar jednog Drum Kita.
-
-        Ovo su samo kandidati.
-        """
 
         record = (
             self.get_drum_kit_name_record(
@@ -884,9 +873,6 @@ class KorgSetParser:
     def analyze_midi_candidates(
         self,
     ) -> list[dict]:
-        """
-        Analizira MIDI kandidate kroz sve Drum Kitove.
-        """
 
         records = (
             self.find_drum_kit_name_records()
@@ -940,9 +926,7 @@ class KorgSetParser:
                         "value": value,
                         "hex": f"{value:02X}",
                         "midi_note": value,
-                        "note_name": midi_to_note(
-                            value
-                        ),
+                        "note_name": midi_to_note(value),
                         "drum_kits": drum_kits,
                         "count": len(drum_kits),
                     }
@@ -965,10 +949,6 @@ class KorgSetParser:
     def find_most_variable_midi_positions(
         self,
     ) -> list[dict]:
-        """
-        Izdvaja byte pozicije sa najviše
-        različitih MIDI vrijednosti.
-        """
 
         analysis = (
             self.analyze_midi_candidates()
@@ -985,9 +965,6 @@ class KorgSetParser:
     def summarize_midi_analysis(
         self,
     ) -> dict:
-        """
-        Sažetak MIDI kandidat analize.
-        """
 
         records = (
             self.find_drum_kit_name_records()
@@ -1043,6 +1020,277 @@ class KorgSetParser:
         }
 
     # ---------------------------------------------------------------
+    # #25 MIDI candidate scoring
+    # ---------------------------------------------------------------
+
+    def score_midi_position(
+        self,
+        relative_offset: int,
+    ) -> dict:
+        """
+        #25
+
+        Ocjenjuje jedan byte offset kao mogući MIDI mapping.
+
+        Score se računa iz:
+        - broja različitih vrijednosti
+        - broja Drum Kitova
+        - MIDI validnosti
+        - raspona vrijednosti
+        - promjenjivosti između kitova
+
+        Ovo NIJE dokaz da je byte stvarni mapping.
+        """
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if not records:
+            return {
+                "relative_offset": relative_offset,
+                "score": 0,
+                "reason": "No Drum Kit records found",
+            }
+
+        if not (
+            0 <= relative_offset
+            < self.DRUM_KIT_RECORD_SIZE
+        ):
+            raise ValueError(
+                "relative_offset outside Drum Kit record"
+            )
+
+        values = [
+            record["raw"][relative_offset]
+            for record in records
+        ]
+
+        unique_values = sorted(
+            set(values)
+        )
+
+        midi_values = [
+            value
+            for value in unique_values
+            if self.is_midi_value(value)
+        ]
+
+        midi_ratio = (
+            len(midi_values)
+            / len(unique_values)
+            if unique_values
+            else 0.0
+        )
+
+        unique_ratio = (
+            len(unique_values)
+            / len(records)
+            if records
+            else 0.0
+        )
+
+        if unique_values:
+            value_range = (
+                max(unique_values)
+                - min(unique_values)
+            )
+        else:
+            value_range = 0
+
+        variability_score = min(
+            len(unique_values),
+            10,
+        )
+
+        midi_score = round(
+            midi_ratio * 10,
+            2,
+        )
+
+        uniqueness_score = round(
+            unique_ratio * 10,
+            2,
+        )
+
+        range_score = (
+            5
+            if 1 <= value_range <= 127
+            else 0
+        )
+
+        total_score = round(
+            variability_score
+            + midi_score
+            + uniqueness_score
+            + range_score,
+            2,
+        )
+
+        return {
+            "relative_offset": relative_offset,
+            "record_count": len(records),
+            "values": values,
+            "unique_values": unique_values,
+            "unique_value_count": len(unique_values),
+            "midi_values": midi_values,
+            "midi_value_count": len(midi_values),
+            "midi_ratio": round(
+                midi_ratio,
+                4,
+            ),
+            "unique_ratio": round(
+                unique_ratio,
+                4,
+            ),
+            "value_range": value_range,
+            "variability_score": variability_score,
+            "midi_score": midi_score,
+            "uniqueness_score": uniqueness_score,
+            "range_score": range_score,
+            "score": total_score,
+        }
+
+    def score_all_midi_positions(
+        self,
+    ) -> list[dict]:
+        """
+        Ocjenjuje svih 24 byte pozicija.
+        """
+
+        results = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            results.append(
+                self.score_midi_position(
+                    relative_offset
+                )
+            )
+
+        return sorted(
+            results,
+            key=lambda item: (
+                item["score"],
+                item["unique_value_count"],
+                item["midi_value_count"],
+            ),
+            reverse=True,
+        )
+
+    def find_best_midi_mapping_candidates(
+        self,
+        limit: int = 10,
+    ) -> list[dict]:
+        """
+        Vraća najbolje MIDI mapping kandidate.
+
+        Podrazumijevano vraća 10 najboljih pozicija.
+        """
+
+        if limit < 1:
+            raise ValueError(
+                "limit must be greater than 0"
+            )
+
+        scored = (
+            self.score_all_midi_positions()
+        )
+
+        return scored[:limit]
+
+    def inspect_midi_mapping_candidate(
+        self,
+        relative_offset: int,
+    ) -> dict:
+        """
+        Detaljno prikazuje jednu potencijalnu
+        MIDI mapping poziciju.
+        """
+
+        score = self.score_midi_position(
+            relative_offset
+        )
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        details = []
+
+        for record in records:
+
+            value = record["raw"][
+                relative_offset
+            ]
+
+            details.append(
+                {
+                    "index": record["index"],
+                    "name": record["name"],
+                    "value": value,
+                    "hex": f"{value:02X}",
+                    "is_midi": (
+                        self.is_midi_value(value)
+                    ),
+                    "midi_note": (
+                        value
+                        if self.is_midi_value(value)
+                        else None
+                    ),
+                    "note_name": (
+                        midi_to_note(value)
+                        if self.is_midi_value(value)
+                        else None
+                    ),
+                    "absolute_offset": (
+                        record["offset"]
+                        + relative_offset
+                    ),
+                }
+            )
+
+        return {
+            "score": score,
+            "drum_kits": details,
+        }
+
+    def summarize_midi_mapping_candidates(
+        self,
+        limit: int = 10,
+    ) -> dict:
+        """
+        Sažetak #25.
+
+        Prikazuje najbolje kandidate za dalju
+        analizu stvarnog Drum Kit mappinga.
+        """
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        candidates = (
+            self.find_best_midi_mapping_candidates(
+                limit=limit
+            )
+        )
+
+        return {
+            "drum_kit_count": len(records),
+            "record_size": (
+                self.DRUM_KIT_RECORD_SIZE
+            ),
+            "positions_analyzed": (
+                self.DRUM_KIT_RECORD_SIZE
+            ),
+            "candidate_limit": limit,
+            "best_candidates": candidates,
+        }
+
+    # ---------------------------------------------------------------
     # Combined binary structure
     # ---------------------------------------------------------------
 
@@ -1075,6 +1323,9 @@ class KorgSetParser:
             ),
             "midi_analysis": (
                 self.summarize_midi_analysis()
+            ),
+            "midi_mapping_candidates": (
+                self.summarize_midi_mapping_candidates()
             ),
         }
 
@@ -1141,6 +1392,9 @@ class KorgSetParser:
             "midi_analysis": (
                 self.summarize_midi_analysis()
             ),
+            "midi_mapping_candidates": (
+                self.summarize_midi_mapping_candidates()
+            ),
         }
 
     # ---------------------------------------------------------------
@@ -1193,6 +1447,9 @@ class KorgSetParser:
             ),
             "midi_analysis": (
                 self.summarize_midi_analysis()
+            ),
+            "midi_mapping_candidates": (
+                self.summarize_midi_mapping_candidates()
             ),
         }
 

@@ -19,17 +19,28 @@ class KorgSetParser:
     Nastavak na #30.
 
     Dodano:
-    - identifikacija najvjerojatnijih MIDI mapping offseta
-    - cross-kit evidence scoring
-    - mapping evidence
-    - MIDI range evidence
-    - variability evidence
-    - position stability evidence
-    - mapping block evidence
-    - candidate ranking
-    - best MIDI mapping position
-    - best mapping candidates po Drum Kitu
-    - kompletan MIDI mapping identification report
+    - cross-kit differential analysis
+    - analiza promjena između Drum Kitova
+    - analiza vrijednosnih prijelaza
+    - analiza zajedničkih promjena byteova
+    - analiza strukturalne stabilnosti
+    - analiza MIDI plausibility
+    - analiza mapping plausibility
+    - odvojeni confidence score:
+        * structural_confidence
+        * midi_confidence
+        * mapping_confidence
+    - evidence za svaki kandidat
+    - poboljšano rangiranje mogućih MIDI mapping pozicija
+    - rangiranje mogućih mapping blokova
+    - cross-kit comparison report
+    - #31 change-pattern analysis
+    - change-pattern signature
+    - change-pattern similarity
+    - change-pattern evidence score
+    - #31 complete change-pattern report
+
+    #29 i #30 funkcije ostaju kompatibilne.
 
     VAŽNO:
     Parser NE mijenja originalni PCG/SET fajl.
@@ -37,9 +48,9 @@ class KorgSetParser:
     MIDI vrijednost 0-127 sama po sebi NIJE dokaz
     da se radi o MIDI mapping podatku.
 
-    Rezultati su kandidati dobiveni strukturalnom analizom.
-    Prije automatskog editiranja potrebno ih je potvrditi
-    stvarnim PA300 podacima.
+    Svi rezultati predstavljaju strukturalnu analizu
+    binarnog fajla i moraju se potvrditi stvarnim
+    PA300 podacima prije automatskog editiranja.
     """
 
     KORF_MAGIC = b"KORF"
@@ -61,6 +72,7 @@ class KorgSetParser:
     # ---------------------------------------------------------------
 
     def _validate(self) -> None:
+
         if not self.set_path.exists():
             raise FileNotFoundError(
                 f"SET/PCG file does not exist: {self.set_path}"
@@ -80,13 +92,17 @@ class KorgSetParser:
             )
 
     def read_bytes(self) -> bytes:
+
         self._validate()
+
         return self.set_path.read_bytes()
 
     def raw_bytes(self) -> bytes:
+
         return self.read_bytes()
 
     def sha256(self) -> str:
+
         return sha256(
             self.read_bytes()
         ).hexdigest()
@@ -125,6 +141,7 @@ class KorgSetParser:
             )
 
         data = self.read_bytes()
+
         preview = data[:preview_size]
 
         return {
@@ -242,6 +259,7 @@ class KorgSetParser:
                 break
 
             offsets.append(offset)
+
             start = offset + 1
 
         return offsets
@@ -948,9 +966,7 @@ class KorgSetParser:
                         "value": value,
                         "hex": f"{value:02X}",
                         "midi_note": value,
-                        "note_name": midi_to_note(
-                            value
-                        ),
+                        "note_name": midi_to_note(value),
                         "drum_kits": drum_kits,
                         "count": len(drum_kits),
                     }
@@ -3183,22 +3199,276 @@ class KorgSetParser:
         }
 
     # ===============================================================
-    # #31 MIDI MAPPING IDENTIFICATION
+    # #31 CHANGE-PATTERN / MAPPING EVIDENCE ANALYSIS
     # ===============================================================
 
-    def analyze_mapping_offset(
+    def analyze_change_patterns(
+        self,
+    ) -> list[dict]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return []
+
+        result = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            values = [
+                record["raw"][relative_offset]
+                for record in records
+            ]
+
+            transitions = []
+
+            for index in range(
+                len(values) - 1
+            ):
+
+                first_value = values[index]
+                second_value = values[index + 1]
+
+                changed = (
+                    first_value != second_value
+                )
+
+                transitions.append(
+                    {
+                        "from_index": index,
+                        "to_index": index + 1,
+                        "from_value": first_value,
+                        "to_value": second_value,
+                        "from_hex": f"{first_value:02X}",
+                        "to_hex": f"{second_value:02X}",
+                        "delta": (
+                            second_value
+                            - first_value
+                        ),
+                        "changed": changed,
+                    }
+                )
+
+            change_count = sum(
+                item["changed"]
+                for item in transitions
+            )
+
+            transition_count = len(
+                transitions
+            )
+
+            change_ratio = (
+                change_count / transition_count
+                if transition_count
+                else 0.0
+            )
+
+            unique_values = sorted(
+                set(values)
+            )
+
+            midi_values = [
+                value
+                for value in unique_values
+                if self.is_midi_value(value)
+            ]
+
+            result.append(
+                {
+                    "relative_offset": (
+                        relative_offset
+                    ),
+                    "values": values,
+                    "hex_values": [
+                        f"{value:02X}"
+                        for value in values
+                    ],
+                    "unique_value_count": len(
+                        unique_values
+                    ),
+                    "unique_values": unique_values,
+                    "midi_values": midi_values,
+                    "change_count": change_count,
+                    "transition_count": (
+                        transition_count
+                    ),
+                    "change_ratio": round(
+                        change_ratio,
+                        4,
+                    ),
+                    "transitions": transitions,
+                }
+            )
+
+        result.sort(
+            key=lambda item: (
+                item["change_ratio"],
+                item["unique_value_count"],
+            ),
+            reverse=True,
+        )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Change pattern signature
+    # ---------------------------------------------------------------
+
+    def build_change_pattern_signature(
+        self,
+        relative_offset: int,
+    ) -> tuple[bool, ...]:
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 2:
+            return tuple()
+
+        values = [
+            record["raw"][relative_offset]
+            for record in records
+        ]
+
+        return tuple(
+            values[index]
+            != values[index + 1]
+            for index in range(
+                len(values) - 1
+            )
+        )
+
+    # ---------------------------------------------------------------
+    # Compare change patterns between positions
+    # ---------------------------------------------------------------
+
+    def analyze_change_pattern_similarity(
+        self,
+        minimum_similarity: float = 0.75,
+    ) -> list[dict]:
+
+        if not 0.0 <= minimum_similarity <= 1.0:
+            raise ValueError(
+                "minimum_similarity must be between 0 and 1"
+            )
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if len(records) < 3:
+            return []
+
+        signatures = {}
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            signatures[
+                relative_offset
+            ] = self.build_change_pattern_signature(
+                relative_offset
+            )
+
+        result = []
+
+        for first_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            first_signature = signatures[
+                first_offset
+            ]
+
+            for second_offset in range(
+                first_offset + 1,
+                self.DRUM_KIT_RECORD_SIZE,
+            ):
+
+                second_signature = signatures[
+                    second_offset
+                ]
+
+                if not first_signature:
+                    continue
+
+                same_count = sum(
+                    first == second
+                    for first, second
+                    in zip(
+                        first_signature,
+                        second_signature,
+                    )
+                )
+
+                total = len(
+                    first_signature
+                )
+
+                similarity = (
+                    same_count / total
+                    if total
+                    else 0.0
+                )
+
+                if similarity >= minimum_similarity:
+
+                    result.append(
+                        {
+                            "first_relative_offset": (
+                                first_offset
+                            ),
+                            "second_relative_offset": (
+                                second_offset
+                            ),
+                            "same_pattern_count": (
+                                same_count
+                            ),
+                            "total_transitions": (
+                                total
+                            ),
+                            "similarity": round(
+                                similarity,
+                                4,
+                            ),
+                            "first_signature": [
+                                int(value)
+                                for value
+                                in first_signature
+                            ],
+                            "second_signature": [
+                                int(value)
+                                for value
+                                in second_signature
+                            ],
+                        }
+                    )
+
+        result.sort(
+            key=lambda item: (
+                item["similarity"],
+                item["same_pattern_count"],
+            ),
+            reverse=True,
+        )
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Mapping evidence score
+    # ---------------------------------------------------------------
+
+    def score_change_pattern_evidence(
         self,
         relative_offset: int,
     ) -> dict:
-
-        if not (
-            0
-            <= relative_offset
-            < self.DRUM_KIT_RECORD_SIZE
-        ):
-            raise ValueError(
-                "relative_offset is outside Drum Kit record"
-            )
 
         records = (
             self.find_drum_kit_name_records()
@@ -3207,161 +3477,77 @@ class KorgSetParser:
         if not records:
             return {
                 "relative_offset": relative_offset,
-                "identified": False,
-                "confidence": 0.0,
+                "change_pattern_score": 0.0,
                 "evidence": [],
             }
 
         values = [
-            record["raw"][
-                relative_offset
-            ]
+            record["raw"][relative_offset]
             for record in records
         ]
 
-        unique_values = sorted(
-            set(values)
-        )
-
-        midi_values = [
-            value
-            for value in values
-            if self.is_midi_value(value)
-        ]
-
-        midi_ratio = (
-            len(midi_values)
-            / len(values)
-            if values
-            else 0.0
-        )
-
-        candidate_count = len(
-            unique_values
-        )
-
-        # -----------------------------------------------------------
-        # Cross-kit variability
-        # -----------------------------------------------------------
-
-        variability_score = min(
-            candidate_count / 8.0,
-            1.0,
-        )
-
-        # -----------------------------------------------------------
-        # Actual change ratio
-        # -----------------------------------------------------------
+        unique_values = set(values)
 
         change_count = sum(
-            value != values[0]
-            for value in values
+            values[index]
+            != values[index + 1]
+            for index in range(
+                len(values) - 1
+            )
+        )
+
+        total_transitions = (
+            len(values) - 1
         )
 
         change_ratio = (
-            change_count / len(values)
-            if values
+            change_count
+            / total_transitions
+            if total_transitions > 0
             else 0.0
         )
 
-        # -----------------------------------------------------------
-        # MIDI range
-        # -----------------------------------------------------------
-
-        range_scores = [
-            self._midi_range_score(
-                value
+        midi_ratio = (
+            sum(
+                self.is_midi_value(value)
+                for value in values
             )
-            for value in midi_values
-        ]
-
-        midi_range_score = (
-            sum(range_scores)
-            / len(range_scores)
-            if range_scores
-            else 0.0
-        )
-
-        # -----------------------------------------------------------
-        # Stability
-        # -----------------------------------------------------------
-
-        most_common_count = max(
-            (
-                values.count(value)
-                for value
-                in unique_values
-            ),
-            default=0,
-        )
-
-        stability = (
-            most_common_count
             / len(values)
             if values
             else 0.0
         )
 
-        # -----------------------------------------------------------
-        # Block evidence
-        # -----------------------------------------------------------
-
-        block_rank = None
-        block_score = 0.0
-
-        blocks = (
-            self.rank_possible_midi_mapping_blocks()
+        unique_score = min(
+            len(unique_values) / 8.0,
+            1.0,
         )
 
-        for block in blocks:
+        change_score = change_ratio
 
-            if (
-                block[
-                    "start_relative_offset"
-                ]
-                <= relative_offset
-                <=
-                block[
-                    "end_relative_offset"
-                ]
-            ):
+        midi_score = midi_ratio
 
-                block_rank = block[
-                    "rank"
-                ]
-
-                block_score = block[
-                    "score"
-                ]
-
-                break
-
-        # -----------------------------------------------------------
-        # Confidence calculation
-        # -----------------------------------------------------------
-
-        confidence = (
-            midi_ratio * 25.0
-            + midi_range_score * 25.0
-            + variability_score * 20.0
-            + change_ratio * 20.0
+        score = (
+            change_score * 40.0
+            + unique_score * 25.0
+            + midi_score * 20.0
         )
-
-        if candidate_count >= 2:
-            confidence += 5.0
-
-        if block_rank is not None:
-            confidence += 5.0
-
-        confidence = self._clamp_score(
-            confidence
-        )
-
-        # -----------------------------------------------------------
-        # Evidence
-        # -----------------------------------------------------------
 
         evidence = []
+
+        if change_ratio >= 0.75:
+            evidence.append(
+                "frequent_changes_between_adjacent_kits"
+            )
+
+        elif change_ratio >= 0.50:
+            evidence.append(
+                "moderate_changes_between_adjacent_kits"
+            )
+
+        if len(unique_values) >= 3:
+            evidence.append(
+                "multiple_distinct_values"
+            )
 
         if midi_ratio == 1.0:
             evidence.append(
@@ -3373,386 +3559,101 @@ class KorgSetParser:
                 "most_values_are_midi_range"
             )
 
-        if midi_range_score >= 0.90:
-            evidence.append(
-                "values_fit_common_midi_note_range"
-            )
-
-        if candidate_count >= 2:
-            evidence.append(
-                "value_changes_between_drum_kits"
-            )
-
-        if candidate_count >= 3:
-            evidence.append(
-                "multiple_distinct_values"
-            )
-
-        if change_ratio >= 0.50:
-            evidence.append(
-                "high_cross_kit_change_ratio"
-            )
-
-        if block_rank is not None:
-            evidence.append(
-                "inside_possible_midi_mapping_block"
-            )
-
-        # -----------------------------------------------------------
-        # Identification level
-        # -----------------------------------------------------------
-
-        if confidence >= 85.0:
-            identification = "strong_candidate"
-
-        elif confidence >= 70.0:
-            identification = "good_candidate"
-
-        elif confidence >= 55.0:
-            identification = "possible_candidate"
-
-        else:
-            identification = "weak_candidate"
-
         return {
             "relative_offset": relative_offset,
-            "values": values,
-            "hex_values": [
-                f"{value:02X}"
-                for value in values
-            ],
-            "unique_values": unique_values,
-            "unique_value_count": candidate_count,
-            "midi_ratio": round(
-                midi_ratio,
-                4,
-            ),
-            "midi_range_score": round(
-                midi_range_score,
-                4,
+            "change_count": change_count,
+            "total_transitions": (
+                total_transitions
             ),
             "change_ratio": round(
                 change_ratio,
                 4,
             ),
-            "stability": round(
-                stability,
+            "unique_value_count": len(
+                unique_values
+            ),
+            "midi_ratio": round(
+                midi_ratio,
                 4,
             ),
-            "block_rank": block_rank,
-            "block_score": round(
-                block_score,
+            "change_pattern_score": round(
+                self._clamp_score(score),
                 2,
             ),
-            "confidence": round(
-                confidence,
-                2,
-            ),
-            "identification": identification,
-            "identified": confidence >= 70.0,
             "evidence": evidence,
         }
 
     # ---------------------------------------------------------------
-    # Identify all likely MIDI mapping offsets
+    # Complete #31 report
     # ---------------------------------------------------------------
 
-    def identify_midi_mapping_offsets(
+    def build_change_pattern_report(
         self,
-        minimum_confidence: float = 70.0,
-    ) -> list[dict]:
-
-        if not 0 <= minimum_confidence <= 100:
-            raise ValueError(
-                "minimum_confidence must be between 0 and 100"
-            )
+    ) -> dict:
 
         records = (
             self.find_drum_kit_name_records()
         )
 
         if not records:
-            return []
+            return {
+                "drum_kit_count": 0,
+                "record_size": (
+                    self.DRUM_KIT_RECORD_SIZE
+                ),
+                "change_patterns": [],
+                "pattern_similarity": [],
+                "scored_positions": [],
+            }
 
-        candidates = []
+        scored_positions = []
 
         for relative_offset in range(
             self.DRUM_KIT_RECORD_SIZE
         ):
 
-            candidate = (
-                self.analyze_mapping_offset(
+            scored_positions.append(
+                self.score_change_pattern_evidence(
                     relative_offset
                 )
             )
 
-            if candidate[
-                "confidence"
-            ] >= minimum_confidence:
-
-                candidates.append(
-                    candidate
-                )
-
-        candidates.sort(
+        scored_positions.sort(
             key=lambda item: (
-                item["confidence"],
-                item["midi_range_score"],
-                item["change_ratio"],
-                item["unique_value_count"],
+                item[
+                    "change_pattern_score"
+                ],
+                item[
+                    "change_ratio"
+                ],
+                item[
+                    "unique_value_count"
+                ],
             ),
             reverse=True,
         )
 
-        for rank, candidate in enumerate(
-            candidates,
+        for rank, item in enumerate(
+            scored_positions,
             start=1,
         ):
 
-            candidate["rank"] = rank
-
-        return candidates
-
-    # ---------------------------------------------------------------
-    # Best MIDI mapping offset
-    # ---------------------------------------------------------------
-
-    def find_best_midi_mapping_offset(
-        self,
-        minimum_confidence: float = 0.0,
-    ) -> Optional[dict]:
-
-        if not 0 <= minimum_confidence <= 100:
-            raise ValueError(
-                "minimum_confidence must be between 0 and 100"
-            )
-
-        candidates = (
-            self.identify_midi_mapping_offsets(
-                minimum_confidence=minimum_confidence
-            )
-        )
-
-        if not candidates:
-            return None
-
-        return candidates[0]
-
-    # ---------------------------------------------------------------
-    # Mapping offset report
-    # ---------------------------------------------------------------
-
-    def build_midi_mapping_identification_report(
-        self,
-        minimum_confidence: float = 70.0,
-    ) -> dict:
-
-        records = (
-            self.find_drum_kit_name_records()
-        )
-
-        candidates = (
-            self.identify_midi_mapping_offsets(
-                minimum_confidence=minimum_confidence
-            )
-        )
-
-        best = (
-            candidates[0]
-            if candidates
-            else None
-        )
+            item["rank"] = rank
 
         return {
-            "format": "PA300 USERDK.PCG",
             "drum_kit_count": len(records),
             "record_size": (
                 self.DRUM_KIT_RECORD_SIZE
             ),
-            "minimum_confidence": (
-                minimum_confidence
+            "change_patterns": (
+                self.analyze_change_patterns()
             ),
-            "candidate_count": len(
-                candidates
+            "pattern_similarity": (
+                self.analyze_change_pattern_similarity()
             ),
-            "best_candidate": best,
-            "candidates": candidates,
-            "safe_to_edit": False,
-            "reason": (
-                "Mapping candidates require "
-                "confirmation against real PA300 "
-                "MIDI/Drum Kit data before editing."
+            "scored_positions": (
+                scored_positions
             ),
-        }
-
-    # ---------------------------------------------------------------
-    # Mapping identification for one Drum Kit
-    # ---------------------------------------------------------------
-
-    def identify_midi_mapping_for_drum_kit(
-        self,
-        index: int,
-        minimum_confidence: float = 70.0,
-    ) -> dict:
-
-        if not 0 <= minimum_confidence <= 100:
-            raise ValueError(
-                "minimum_confidence must be between 0 and 100"
-            )
-
-        record = (
-            self.get_drum_kit_name_record(
-                index
-            )
-        )
-
-        candidates = (
-            self.identify_midi_mapping_offsets(
-                minimum_confidence=minimum_confidence
-            )
-        )
-
-        result = []
-
-        for candidate in candidates:
-
-            relative_offset = candidate[
-                "relative_offset"
-            ]
-
-            value = record["raw"][
-                relative_offset
-            ]
-
-            result.append(
-                {
-                    "rank": candidate["rank"],
-                    "relative_offset": (
-                        relative_offset
-                    ),
-                    "absolute_offset": (
-                        record["offset"]
-                        + relative_offset
-                    ),
-                    "value": value,
-                    "hex": f"{value:02X}",
-                    "midi_note": (
-                        value
-                        if self.is_midi_value(
-                            value
-                        )
-                        else None
-                    ),
-                    "note_name": (
-                        midi_to_note(value)
-                        if self.is_midi_value(
-                            value
-                        )
-                        else None
-                    ),
-                    "confidence": candidate[
-                        "confidence"
-                    ],
-                    "identification": candidate[
-                        "identification"
-                    ],
-                    "evidence": candidate[
-                        "evidence"
-                    ],
-                }
-            )
-
-        return {
-            "index": record["index"],
-            "name": record["name"],
-            "record_offset": record["offset"],
-            "mapping_candidates": result,
-        }
-
-    # ---------------------------------------------------------------
-    # All Drum Kits mapping identification
-    # ---------------------------------------------------------------
-
-    def identify_all_drum_kit_mappings(
-        self,
-        minimum_confidence: float = 70.0,
-    ) -> list[dict]:
-
-        records = (
-            self.find_drum_kit_name_records()
-        )
-
-        return [
-            self.identify_midi_mapping_for_drum_kit(
-                record["index"],
-                minimum_confidence=minimum_confidence,
-            )
-            for record in records
-        ]
-
-    # ---------------------------------------------------------------
-    # Mapping offset fingerprint
-    # ---------------------------------------------------------------
-
-    def build_mapping_offset_fingerprint(
-        self,
-        relative_offset: int,
-    ) -> dict:
-
-        if not (
-            0
-            <= relative_offset
-            < self.DRUM_KIT_RECORD_SIZE
-        ):
-            raise ValueError(
-                "relative_offset is outside Drum Kit record"
-            )
-
-        records = (
-            self.find_drum_kit_name_records()
-        )
-
-        fingerprint = []
-
-        for record in records:
-
-            value = record["raw"][
-                relative_offset
-            ]
-
-            fingerprint.append(
-                {
-                    "index": record["index"],
-                    "name": record["name"],
-                    "record_offset": record["offset"],
-                    "relative_offset": relative_offset,
-                    "absolute_offset": (
-                        record["offset"]
-                        + relative_offset
-                    ),
-                    "value": value,
-                    "hex": f"{value:02X}",
-                    "midi_note": (
-                        value
-                        if self.is_midi_value(
-                            value
-                        )
-                        else None
-                    ),
-                    "note_name": (
-                        midi_to_note(value)
-                        if self.is_midi_value(
-                            value
-                        )
-                        else None
-                    ),
-                }
-            )
-
-        return {
-            "relative_offset": relative_offset,
-            "drum_kit_count": len(records),
-            "fingerprint": fingerprint,
         }
 
     # ---------------------------------------------------------------
@@ -3805,15 +3706,13 @@ class KorgSetParser:
 
         positions_with_candidates = [
             item
-            for item
-            in analysis
+            for item in analysis
             if item["candidate_count"] > 0
         ]
 
         variable_positions = [
             item
-            for item
-            in analysis
+            for item in analysis
             if item["candidate_count"] > 1
         ]
 
@@ -4030,8 +3929,8 @@ class KorgSetParser:
             "advanced_structural_analysis": (
                 self.build_advanced_structural_report()
             ),
-            "midi_mapping_identification": (
-                self.build_midi_mapping_identification_report()
+            "change_pattern_analysis": (
+                self.build_change_pattern_report()
             ),
         }
 
@@ -4113,14 +4012,11 @@ class KorgSetParser:
             "confidence_report": (
                 self.build_confidence_report()
             ),
-            "midi_mapping_identification": (
-                self.build_midi_mapping_identification_report()
-            ),
-            "identified_mapping_offsets": (
-                self.identify_midi_mapping_offsets()
-            ),
             "high_confidence_mapping_positions": (
                 self.find_high_confidence_mapping_positions()
+            ),
+            "change_pattern_report": (
+                self.build_change_pattern_report()
             ),
         }
 
@@ -4190,8 +4086,8 @@ class KorgSetParser:
             "confidence_report": (
                 self.build_confidence_report()
             ),
-            "midi_mapping_identification": (
-                self.build_midi_mapping_identification_report()
+            "change_pattern_report": (
+                self.build_change_pattern_report()
             ),
         }
 

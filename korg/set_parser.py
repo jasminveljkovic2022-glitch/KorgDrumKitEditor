@@ -13,45 +13,48 @@ class KorgSetParser:
     """
     PA300 SET / PCG binary parser and inspector.
 
-    #19
+    #20
 
-    Ova verzija je nastavak #18.
+    Nastavak na #19.
 
-    Pouzdano obrađuje:
+    Obraduje:
     - sirove binarne podatke
     - veličinu fajla
     - SHA-256 checksum
     - hex pregled
-    - ASCII stringove sa offsetima
-    - pretragu byte patterna
+    - ASCII stringove
+    - byte pattern search
     - hexdump
     - KORF blok
-    - 24-byte Drum Kit name records
-    - stvarne nazive Drum Kitova
-    - sirove bajtove pojedinačnih recorda
+    - Drum Kit name records
+    - 24-byte Drum Kit records
     - binarnu analizu Drum Kit recorda
-    - poređenje dva Drum Kit recorda
-    - analizu promjena po byte offsetima
+    - poređenje Drum Kit recorda
+    - automatsku analizu promjena po byte offsetima
 
     VAŽNO:
 
-    Parser NE mijenja USERDK.PCG.
+    Parser NE mijenja originalni PCG/SET fajl.
 
-    Parser NE zapisuje izmjene nazad u PCG.
+    Parser NE zapisuje izmjene nazad u Korg fajl.
 
-    Parser NE tvrdi da određeni byte sigurno predstavlja
-    određeni MIDI instrument.
+    #20 NE tvrdi da je određeni byte sigurno MIDI mapping.
 
-    #19 služi za prikupljanje stvarnih binarnih podataka.
+    #20 samo pronalazi i prikazuje byte pozicije koje se
+    razlikuju između Drum Kit recorda.
     """
 
     # ------------------------------------------------------------------
-    # Potvrđena struktura iz stvarnog PA300 USERDK.PCG
+    # Confirmed structure
     # ------------------------------------------------------------------
 
     KORF_MAGIC = b"KORF"
     KORF_HEADER_SIZE = 13
     DRUM_KIT_RECORD_SIZE = 24
+
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
 
     def __init__(self, set_path: str | Path):
         self.set_path = Path(set_path)
@@ -62,7 +65,7 @@ class KorgSetParser:
 
     def _validate(self) -> None:
         """
-        Provjerava da li ulazni fajl postoji i da je podržan.
+        Provjerava da li ulazni fajl postoji i da li je podržan.
         """
 
         if not self.set_path.exists():
@@ -84,12 +87,11 @@ class KorgSetParser:
 
     def read_bytes(self) -> bytes:
         """
-        Učitava originalni fajl kao immutable bytes.
-
-        Ova metoda nikada ne zapisuje ništa na disk.
+        Učitava originalni fajl kao bytes.
         """
 
         self._validate()
+
         return self.set_path.read_bytes()
 
     def raw_bytes(self) -> bytes:
@@ -101,19 +103,24 @@ class KorgSetParser:
 
     def sha256(self) -> str:
         """
-        Vraća SHA-256 checksum originalnog fajla.
+        Vraća SHA-256 checksum fajla.
         """
 
-        return sha256(self.read_bytes()).hexdigest()
+        return sha256(
+            self.read_bytes()
+        ).hexdigest()
 
-    def copy_original(self, destination: str | Path) -> Path:
+    def copy_original(
+        self,
+        destination: str | Path,
+    ) -> Path:
         """
-        Napravi identičnu kopiju originalnog fajla.
-
-        Originalni fajl se ne mijenja.
+        Pravi kopiju originalnog fajla.
         """
 
-        destination_path = Path(destination)
+        destination_path = Path(
+            destination
+        )
 
         destination_path.parent.mkdir(
             parents=True,
@@ -136,7 +143,7 @@ class KorgSetParser:
         preview_size: int = 256,
     ) -> dict:
         """
-        Vraća osnovne informacije o fajlu.
+        Osnovna analiza fajla.
         """
 
         if preview_size < 1:
@@ -145,6 +152,7 @@ class KorgSetParser:
             )
 
         data = self.read_bytes()
+
         preview = data[:preview_size]
 
         return {
@@ -165,11 +173,13 @@ class KorgSetParser:
         minimum_length: int = 4,
     ) -> list[str]:
         """
-        Pronalazi ASCII tekstove unutar binarnog fajla.
+        Pronalazi ASCII stringove.
         """
 
-        records = self.find_ascii_strings_with_offsets(
-            minimum_length=minimum_length
+        records = (
+            self.find_ascii_strings_with_offsets(
+                minimum_length=minimum_length
+            )
         )
 
         return [
@@ -182,7 +192,7 @@ class KorgSetParser:
         minimum_length: int = 4,
     ) -> list[dict]:
         """
-        Pronalazi ASCII stringove i njihove offsete.
+        Pronalazi ASCII stringove sa offsetima.
         """
 
         if minimum_length < 1:
@@ -205,6 +215,7 @@ class KorgSetParser:
                     start_offset = offset
 
                 current.append(byte)
+
                 continue
 
             if (
@@ -215,7 +226,9 @@ class KorgSetParser:
                     {
                         "offset": start_offset,
                         "length": len(current),
-                        "text": current.decode("ascii"),
+                        "text": current.decode(
+                            "ascii"
+                        ),
                     }
                 )
 
@@ -230,7 +243,9 @@ class KorgSetParser:
                 {
                     "offset": start_offset,
                     "length": len(current),
-                    "text": current.decode("ascii"),
+                    "text": current.decode(
+                        "ascii"
+                    ),
                 }
             )
 
@@ -245,7 +260,7 @@ class KorgSetParser:
         pattern: bytes,
     ) -> list[int]:
         """
-        Pronalazi sva pojavljivanja proizvoljnog byte patterna.
+        Pronalazi sva pojavljivanja byte patterna.
         """
 
         if not pattern:
@@ -256,6 +271,7 @@ class KorgSetParser:
         data = self.read_bytes()
 
         offsets: list[int] = []
+
         start = 0
 
         while True:
@@ -285,7 +301,7 @@ class KorgSetParser:
         bytes_per_line: int = 16,
     ) -> str:
         """
-        Vraća klasični hex dump određenog dijela fajla.
+        Vraća hex dump.
         """
 
         if offset < 0:
@@ -329,7 +345,8 @@ class KorgSetParser:
             ]
 
             absolute_offset = (
-                offset + relative_offset
+                offset
+                + relative_offset
             )
 
             hex_part = " ".join(
@@ -353,12 +370,14 @@ class KorgSetParser:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # PA300 USERDK.PCG / KORF
+    # KORF
     # ------------------------------------------------------------------
 
-    def find_korf_offset(self) -> Optional[int]:
+    def find_korf_offset(
+        self,
+    ) -> Optional[int]:
         """
-        Pronalazi KORF marker u PCG fajlu.
+        Pronalazi KORF marker.
         """
 
         data = self.read_bytes()
@@ -372,12 +391,16 @@ class KorgSetParser:
 
         return offset
 
+    # ------------------------------------------------------------------
+    # Drum Kit name records
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _decode_pcg_name(
         record: bytes,
     ) -> str:
         """
-        Čita naziv iz 24-byte Drum Kit recorda.
+        Dekodira naziv Drum Kita.
         """
 
         raw_name = record.split(
@@ -385,22 +408,17 @@ class KorgSetParser:
             1,
         )[0]
 
-        try:
-            return raw_name.decode(
-                "ascii",
-                errors="replace",
-            ).strip()
-
-        except UnicodeDecodeError:
-            return ""
+        return raw_name.decode(
+            "ascii",
+            errors="replace",
+        ).strip()
 
     @staticmethod
     def _is_printable_ascii_name(
         record: bytes,
     ) -> bool:
         """
-        Provjerava da li početak recorda izgleda
-        kao ASCII naziv Drum Kita.
+        Provjerava da li record počinje ASCII nazivom.
         """
 
         if not record:
@@ -426,7 +444,7 @@ class KorgSetParser:
         self,
     ) -> list[dict]:
         """
-        Pronalazi stvarne Drum Kit name records iz KORF bloka.
+        Pronalazi Drum Kit name recorde.
         """
 
         data = self.read_bytes()
@@ -447,13 +465,15 @@ class KorgSetParser:
         index = 0
 
         while (
-            offset + self.DRUM_KIT_RECORD_SIZE
+            offset
+            + self.DRUM_KIT_RECORD_SIZE
             <= len(data)
         ):
 
             record = data[
                 offset:
-                offset + self.DRUM_KIT_RECORD_SIZE
+                offset
+                + self.DRUM_KIT_RECORD_SIZE
             ]
 
             if not self._is_printable_ascii_name(
@@ -476,7 +496,9 @@ class KorgSetParser:
                         offset
                         + self.DRUM_KIT_RECORD_SIZE
                     ),
-                    "size": self.DRUM_KIT_RECORD_SIZE,
+                    "size": (
+                        self.DRUM_KIT_RECORD_SIZE
+                    ),
                     "name": name,
                     "raw": record,
                     "hex": record.hex(" "),
@@ -484,18 +506,24 @@ class KorgSetParser:
             )
 
             index += 1
-            offset += self.DRUM_KIT_RECORD_SIZE
+
+            offset += (
+                self.DRUM_KIT_RECORD_SIZE
+            )
 
         return records
 
-    def find_drum_kit_names(self) -> list[str]:
+    def find_drum_kit_names(
+        self,
+    ) -> list[str]:
         """
-        Vraća samo stvarne nazive Drum Kitova.
+        Vraća samo nazive Drum Kitova.
         """
 
         return [
             record["name"]
-            for record in self.find_drum_kit_name_records()
+            for record
+            in self.find_drum_kit_name_records()
         ]
 
     def get_drum_kit_name_record(
@@ -503,10 +531,12 @@ class KorgSetParser:
         index: int,
     ) -> dict:
         """
-        Vraća jedan sirovi Drum Kit name record.
+        Vraća jedan Drum Kit record.
         """
 
-        records = self.find_drum_kit_name_records()
+        records = (
+            self.find_drum_kit_name_records()
+        )
 
         if index < 0 or index >= len(records):
             raise IndexError(
@@ -524,20 +554,22 @@ class KorgSetParser:
         index: int,
     ) -> dict:
         """
-        Detaljno analizira jedan 24-byte Drum Kit record.
-
-        Ne pretpostavlja značenje pojedinačnih bajtova.
+        Detaljna analiza jednog Drum Kit recorda.
         """
 
-        record = self.get_drum_kit_name_record(
-            index
+        record = (
+            self.get_drum_kit_name_record(
+                index
+            )
         )
 
         raw = record["raw"]
 
         byte_values = []
 
-        for relative_offset, byte in enumerate(raw):
+        for relative_offset, byte in enumerate(
+            raw
+        ):
 
             byte_values.append(
                 {
@@ -545,7 +577,9 @@ class KorgSetParser:
                         record["offset"]
                         + relative_offset
                     ),
-                    "relative_offset": relative_offset,
+                    "relative_offset": (
+                        relative_offset
+                    ),
                     "value": byte,
                     "hex": f"{byte:02X}",
                 }
@@ -553,17 +587,23 @@ class KorgSetParser:
 
         midi_candidates = []
 
-        for relative_offset, byte in enumerate(raw):
+        for relative_offset, byte in enumerate(
+            raw
+        ):
 
             if 0 <= byte <= 127:
 
                 midi_candidates.append(
                     {
-                        "relative_offset": relative_offset,
+                        "relative_offset": (
+                            relative_offset
+                        ),
                         "value": byte,
                         "hex": f"{byte:02X}",
                         "midi_note": byte,
-                        "note_name": midi_to_note(byte),
+                        "note_name": midi_to_note(
+                            byte
+                        ),
                     }
                 )
 
@@ -582,10 +622,12 @@ class KorgSetParser:
         self,
     ) -> list[dict]:
         """
-        Analizira sve pronađene Drum Kit recorde.
+        Analizira sve Drum Kit recorde.
         """
 
-        records = self.find_drum_kit_name_records()
+        records = (
+            self.find_drum_kit_name_records()
+        )
 
         return [
             self.inspect_drum_kit_record(
@@ -600,15 +642,19 @@ class KorgSetParser:
         second_index: int,
     ) -> dict:
         """
-        Uspoređuje dva Drum Kit recorda byte-po-byte.
+        Uspoređuje dva Drum Kit recorda.
         """
 
-        first = self.get_drum_kit_name_record(
-            first_index
+        first = (
+            self.get_drum_kit_name_record(
+                first_index
+            )
         )
 
-        second = self.get_drum_kit_name_record(
-            second_index
+        second = (
+            self.get_drum_kit_name_record(
+                second_index
+            )
         )
 
         first_raw = first["raw"]
@@ -681,21 +727,21 @@ class KorgSetParser:
         self,
     ) -> list[dict]:
         """
-        Analizira koji byte offseti se razlikuju
-        između pronađenih Drum Kitova.
+        Pronalazi byte pozicije koje se razlikuju
+        između Drum Kitova.
         """
 
-        records = self.find_drum_kit_name_records()
+        records = (
+            self.find_drum_kit_name_records()
+        )
 
         if not records:
             return []
 
         variations = []
 
-        record_size = self.DRUM_KIT_RECORD_SIZE
-
         for relative_offset in range(
-            record_size
+            self.DRUM_KIT_RECORD_SIZE
         ):
 
             values = []
@@ -721,20 +767,177 @@ class KorgSetParser:
                             f"{value:02X}"
                             for value in values
                         ],
-                        "record_count": len(records),
+                        "record_count": len(
+                            records
+                        ),
                     }
                 )
 
         return variations
 
+    # ------------------------------------------------------------------
+    # #20 - Automatic byte analysis
+    # ------------------------------------------------------------------
+
+    def analyze_drum_kit_byte_positions(
+        self,
+    ) -> list[dict]:
+        """
+        #20
+
+        Automatski analizira svaki byte offset
+        unutar Drum Kit recorda.
+
+        Za svaki offset prikazuje:
+
+        - vrijednosti koje se pojavljuju
+        - broj različitih vrijednosti
+        - koliko Drum Kitova koristi vrijednost
+        - hex vrijednost
+        - MIDI kandidat ako je vrijednost 0-127
+
+        Ova metoda NE određuje značenje bajta.
+        """
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        if not records:
+            return []
+
+        analysis = []
+
+        for relative_offset in range(
+            self.DRUM_KIT_RECORD_SIZE
+        ):
+
+            values: dict[int, list[dict]] = {}
+
+            for record in records:
+
+                value = record["raw"][
+                    relative_offset
+                ]
+
+                values.setdefault(
+                    value,
+                    [],
+                ).append(
+                    {
+                        "index": record["index"],
+                        "name": record["name"],
+                    }
+                )
+
+            value_details = []
+
+            for value in sorted(values):
+
+                item = {
+                    "value": value,
+                    "hex": f"{value:02X}",
+                    "count": len(values[value]),
+                    "drum_kits": values[value],
+                }
+
+                if 0 <= value <= 127:
+
+                    item["midi_note"] = value
+                    item["note_name"] = (
+                        midi_to_note(value)
+                    )
+
+                else:
+
+                    item["midi_note"] = None
+                    item["note_name"] = None
+
+                value_details.append(item)
+
+            analysis.append(
+                {
+                    "relative_offset": (
+                        relative_offset
+                    ),
+                    "unique_value_count": (
+                        len(values)
+                    ),
+                    "changes_between_kits": (
+                        len(values) > 1
+                    ),
+                    "values": value_details,
+                }
+            )
+
+        return analysis
+
+    def find_likely_variable_byte_positions(
+        self,
+    ) -> list[dict]:
+        """
+        #20
+
+        Izdvaja samo byte pozicije koje imaju
+        više različitih vrijednosti.
+        """
+
+        analysis = (
+            self.analyze_drum_kit_byte_positions()
+        )
+
+        return [
+            item
+            for item in analysis
+            if item["changes_between_kits"]
+        ]
+
+    def summarize_drum_kit_differences(
+        self,
+    ) -> dict:
+        """
+        #20
+
+        Sažeti pregled promjenjivih byte pozicija.
+        """
+
+        records = (
+            self.find_drum_kit_name_records()
+        )
+
+        variable_positions = (
+            self.find_likely_variable_byte_positions()
+        )
+
+        return {
+            "drum_kit_count": len(records),
+            "record_size": (
+                self.DRUM_KIT_RECORD_SIZE
+            ),
+            "variable_byte_positions": (
+                len(variable_positions)
+            ),
+            "fixed_byte_positions": (
+                self.DRUM_KIT_RECORD_SIZE
+                - len(variable_positions)
+            ),
+            "positions": variable_positions,
+        }
+
+    # ------------------------------------------------------------------
+    # Combined Drum Kit analysis
+    # ------------------------------------------------------------------
+
     def inspect_drum_kit_binary_structure(
         self,
     ) -> dict:
         """
-        Kombinovana #19 analiza Drum Kit binarne strukture.
+        Kombinovana analiza Drum Kit strukture.
         """
 
-        records = self.inspect_all_drum_kit_records()
+        records = (
+            self.inspect_all_drum_kit_records()
+        )
 
         return {
             "format": "PA300 USERDK.PCG",
@@ -746,6 +949,15 @@ class KorgSetParser:
             "byte_variations": (
                 self.find_record_byte_variations()
             ),
+            "automatic_byte_analysis": (
+                self.analyze_drum_kit_byte_positions()
+            ),
+            "likely_variable_positions": (
+                self.find_likely_variable_byte_positions()
+            ),
+            "difference_summary": (
+                self.summarize_drum_kit_differences()
+            ),
         }
 
     # ------------------------------------------------------------------
@@ -756,14 +968,16 @@ class KorgSetParser:
         self,
     ) -> dict:
         """
-        Detaljna analiza USERDK.PCG fajla.
+        Detaljna analiza USERDK.PCG.
         """
 
         data = self.read_bytes()
 
         korf_offset = self.find_korf_offset()
 
-        records = self.find_drum_kit_name_records()
+        records = (
+            self.find_drum_kit_name_records()
+        )
 
         return {
             "path": str(self.set_path),
@@ -772,7 +986,9 @@ class KorgSetParser:
             "format": "PA300 USERDK.PCG",
             "korf": {
                 "magic": (
-                    self.KORF_MAGIC.decode("ascii")
+                    self.KORF_MAGIC.decode(
+                        "ascii"
+                    )
                     if korf_offset is not None
                     else None
                 ),
@@ -817,8 +1033,7 @@ class KorgSetParser:
         """
         Objedinjeni structural inspection.
 
-        Za USERDK.PCG uključuje i #19 binarnu
-        Drum Kit analizu.
+        Uključuje #20 automatsku byte analizu.
         """
 
         if preview_size < 1:
@@ -835,7 +1050,7 @@ class KorgSetParser:
 
         preview = data[:preview_size]
 
-        result = {
+        return {
             "path": str(self.set_path),
             "size": len(data),
             "sha256": self.sha256(),
@@ -845,10 +1060,14 @@ class KorgSetParser:
             },
             "ascii_strings": (
                 self.find_ascii_strings_with_offsets(
-                    minimum_length=minimum_string_length
+                    minimum_length=(
+                        minimum_string_length
+                    )
                 )
             ),
-            "korf_offset": self.find_korf_offset(),
+            "korf_offset": (
+                self.find_korf_offset()
+            ),
             "drum_kit_names": (
                 self.find_drum_kit_names()
             ),
@@ -857,18 +1076,16 @@ class KorgSetParser:
             ),
         }
 
-        return result
-
     # ------------------------------------------------------------------
     # DrumKit model conversion
     # ------------------------------------------------------------------
 
     def parse(self) -> list[DrumKit]:
         """
-        Parsira stvarne Drum Kit nazive iz PA300 USERDK.PCG.
+        Parsira Drum Kit nazive.
 
-        Instruments je i dalje prazan jer mapping
-        još nije potvrđen.
+        Instruments ostaje prazan dok stvarni mapping
+        ne bude potvrđen.
         """
 
         data = self.read_bytes()
@@ -876,7 +1093,9 @@ class KorgSetParser:
         if not data:
             return []
 
-        records = self.find_drum_kit_name_records()
+        records = (
+            self.find_drum_kit_name_records()
+        )
 
         kits: list[DrumKit] = []
 
@@ -904,7 +1123,7 @@ class KorgSetParser:
         bank_lsb: Optional[int] = None,
     ) -> DrumInstrument:
         """
-        Kreira DrumInstrument i određuje naziv MIDI note.
+        Kreira DrumInstrument.
         """
 
         if not 0 <= midi_note <= 127:
@@ -914,7 +1133,9 @@ class KorgSetParser:
 
         return DrumInstrument(
             midi_note=midi_note,
-            note_name=midi_to_note(midi_note),
+            note_name=midi_to_note(
+                midi_note
+            ),
             name=name,
             program=program,
             bank_msb=bank_msb,

@@ -1,608 +1,788 @@
-```python id="r7m3kd"
+```python
     # ===============================================================
-    # #38 HUMAN-READABLE DRUM KIT REPORT
+    # #39 MAPPING CONFIDENCE & FINAL VERIFICATION
     # ===============================================================
 
-    def build_human_readable_drum_kit_report(
+    def verify_mapping_confidence(
         self,
-    ) -> dict:
+    ) -> list[dict]:
         """
-        #38
+        #39
 
-        Pretvara rezultate #37 u strukturirani,
-        čitljiv izvještaj.
+        Završna provjera MIDI mapping kandidata.
+
+        Koristi rezultate:
+        #32 - Mapping Consistency
+        #33 - Mapping Relationships
+        #34 - Mapping Field Detection
+        #35 - Mapping Field Interpretation
+        #36 - MIDI Mapping Validation
+        #37 - Drum Kit Structure Reconstruction
+        #38 - Human-Readable Report
 
         Cilj:
-        - prikazati svaki Drum Kit pregledno
-        - prikazati najbolje MIDI mapping kandidate
-        - prikazati mapping fieldove
-        - prikazati confidence i score
-        - prikazati unknown byte pozicije
-        - omogućiti lakše ručno provjeravanje rezultata
+        - objediniti sve prethodne dokaze
+        - izračunati final confidence score
+        - razlikovati potvrđene i vjerovatne mapping pozicije
+        - detektirati konflikte
+        - provjeriti stabilnost kroz Drum Kit records
         - NE mijenjati originalni PCG/SET fajl
         """
 
+        consistency_report = (
+            self.analyze_mapping_consistency()
+        )
+
+        interpretation_report = (
+            self.analyze_mapping_field_interpretation()
+        )
+
+        validation_report = (
+            self.validate_midi_mapping_candidates()
+        )
+
         structure_report = (
-            self.build_drum_kit_structure_report()
+            self.reconstruct_drum_kit_structure()
         )
 
-        reconstructed_kits = structure_report.get(
-            "reconstructed_kits",
-            [],
-        )
+        if not validation_report:
+            return []
 
-        if not reconstructed_kits:
-            return {
-                "title": (
-                    "Korg Drum Kit Analysis Report"
-                ),
-                "drum_kit_count": 0,
-                "kits": [],
-                "summary": {
-                    "high_confidence_kits": 0,
-                    "kits_with_midi_mapping": 0,
-                    "total_mapping_positions": 0,
-                    "total_mapping_fields": 0,
-                },
-            }
+        consistency_by_offset = {
+            item[
+                "relative_offset"
+            ]: item
+            for item in consistency_report
+        }
 
-        # -----------------------------------------------------------
-        # Helper functions
-        # -----------------------------------------------------------
+        interpretation_by_offset = {}
 
-        def format_hex(
-            value,
-        ):
-            try:
-                return f"{int(value):02X}"
-            except (
-                TypeError,
-                ValueError,
-            ):
-                return "??"
+        for item in interpretation_report:
 
-        def safe_note_name(
-            value,
-        ):
-            try:
-                if (
-                    isinstance(
-                        value,
-                        int,
-                    )
-                    and 0 <= value <= 127
-                ):
-                    return midi_to_note(
-                        value
-                    )
-            except Exception:
-                pass
-
-            return None
-
-        # -----------------------------------------------------------
-        # Build human-readable kit reports
-        # -----------------------------------------------------------
-
-        kit_reports = []
-
-        for kit in reconstructed_kits:
-
-            record_index = kit.get(
-                "record_index"
-            )
-
-            raw_bytes = kit.get(
-                "raw_bytes",
+            for offset in item.get(
+                "offsets",
                 [],
-            )
+            ):
 
-            midi_positions = kit.get(
+                interpretation_by_offset[
+                    offset
+                ] = item
+
+        structure_by_offset = {}
+
+        for kit in structure_report:
+
+            for mapping in kit.get(
                 "midi_mapping_positions",
                 [],
-            )
-
-            mapping_fields = kit.get(
-                "mapping_fields",
-                [],
-            )
-
-            interpreted_fields = kit.get(
-                "interpreted_fields",
-                [],
-            )
-
-            unknown_positions = kit.get(
-                "unknown_positions",
-                [],
-            )
-
-            reconstruction_score = kit.get(
-                "reconstruction_score",
-                0.0,
-            )
-
-            reconstruction_confidence = (
-                kit.get(
-                    "reconstruction_confidence",
-                    "low",
-                )
-            )
-
-            # -------------------------------------------------------
-            # MIDI mapping summary
-            # -------------------------------------------------------
-
-            midi_mapping_summary = []
-
-            for mapping in midi_positions:
+            ):
 
                 offset = mapping.get(
                     "relative_offset"
                 )
 
-                value = mapping.get(
-                    "value"
-                )
-
-                note_name = mapping.get(
-                    "midi_note_name"
-                )
-
-                if note_name is None:
-                    note_name = safe_note_name(
-                        value
+                if offset is not None:
+                    structure_by_offset.setdefault(
+                        offset,
+                        []
+                    ).append(
+                        mapping
                     )
 
-                midi_mapping_summary.append(
-                    {
-                        "offset": offset,
-                        "offset_hex": (
-                            format_hex(
-                                offset
-                            )
-                        ),
-                        "value": value,
-                        "hex": (
-                            format_hex(
-                                value
-                            )
-                        ),
-                        "midi_note": (
-                            note_name
-                        ),
-                        "validation": (
-                            mapping.get(
-                                "validation"
-                            )
-                        ),
-                        "confidence": (
-                            mapping.get(
-                                "confidence"
-                            )
-                        ),
-                        "score": (
-                            mapping.get(
-                                "validation_score",
-                                0.0,
-                            )
-                        ),
-                    }
+        final_report = []
+
+        # -----------------------------------------------------------
+        # Verify every candidate
+        # -----------------------------------------------------------
+
+        for validation in validation_report:
+
+            offset = validation.get(
+                "relative_offset"
+            )
+
+            if offset is None:
+                continue
+
+            consistency = (
+                consistency_by_offset.get(
+                    offset,
+                    {},
                 )
+            )
 
-            # -------------------------------------------------------
-            # Mapping field summary
-            # -------------------------------------------------------
+            interpretation = (
+                interpretation_by_offset.get(
+                    offset,
+                    {},
+                )
+            )
 
-            field_summary = []
-
-            for field in mapping_fields:
-
-                offsets = field.get(
-                    "offsets",
+            structure_evidence = (
+                structure_by_offset.get(
+                    offset,
                     [],
                 )
-
-                offset_text = ", ".join(
-                    f"0x{format_hex(offset)}"
-                    for offset in offsets
-                )
-
-                field_summary.append(
-                    {
-                        "field_id": (
-                            field.get(
-                                "field_id"
-                            )
-                        ),
-                        "offsets": offsets,
-                        "offset_range": (
-                            f"0x{format_hex(field.get('start_offset'))}"
-                            f"-0x{format_hex(field.get('end_offset'))}"
-                        ),
-                        "offset_text": (
-                            offset_text
-                        ),
-                        "field_size": (
-                            field.get(
-                                "field_size"
-                            )
-                        ),
-                        "score": (
-                            field.get(
-                                "group_score",
-                                0.0,
-                            )
-                        ),
-                        "classification": (
-                            field.get(
-                                "classification"
-                            )
-                        ),
-                    }
-                )
+            )
 
             # -------------------------------------------------------
-            # Interpretation summary
+            # Scores
             # -------------------------------------------------------
 
-            interpretation_summary = []
-
-            for field in interpreted_fields:
-
-                interpretation_summary.append(
-                    {
-                        "field_id": (
-                            field.get(
-                                "field_id"
-                            )
-                        ),
-                        "offsets": (
-                            field.get(
-                                "offsets",
-                                [],
-                            )
-                        ),
-                        "interpretation": (
-                            field.get(
-                                "interpretation"
-                            )
-                        ),
-                        "confidence": (
-                            field.get(
-                                "confidence"
-                            )
-                        ),
-                        "score": (
-                            field.get(
-                                "interpretation_score",
-                                0.0,
-                            )
-                        ),
-                        "midi_mapping": (
-                            field.get(
-                                "midi_mapping"
-                            )
-                        ),
-                        "evidence": (
-                            field.get(
-                                "evidence",
-                                [],
-                            )
-                        ),
-                    }
+            validation_score = float(
+                validation.get(
+                    "validation_score",
+                    0.0,
                 )
+            )
+
+            consistency_score = float(
+                consistency.get(
+                    "consistency_score",
+                    0.0,
+                )
+            )
+
+            interpretation_score = float(
+                interpretation.get(
+                    "interpretation_score",
+                    0.0,
+                )
+            )
+
+            midi_ratio = float(
+                validation.get(
+                    "midi_ratio",
+                    0.0,
+                )
+            )
+
+            valid_transition_ratio = float(
+                validation.get(
+                    "valid_transition_ratio",
+                    0.0,
+                )
+            )
+
+            compact_range_score = float(
+                validation.get(
+                    "compact_range_score",
+                    0.0,
+                )
+            )
 
             # -------------------------------------------------------
-            # Unknown byte summary
+            # Cross-record evidence
             # -------------------------------------------------------
 
-            unknown_summary = []
+            record_count = int(
+                validation.get(
+                    "record_count",
+                    0,
+                )
+            )
 
-            for unknown in unknown_positions:
+            unique_count = int(
+                validation.get(
+                    "unique_value_count",
+                    0,
+                )
+            )
 
-                offset = unknown.get(
-                    "relative_offset"
+            change_ratio = float(
+                validation.get(
+                    "change_ratio",
+                    0.0,
+                )
+            )
+
+            # -------------------------------------------------------
+            # Strong evidence flags
+            # -------------------------------------------------------
+
+            evidence = []
+
+            if validation_score >= 85.0:
+                evidence.append(
+                    "high_validation_score"
                 )
 
-                value = unknown.get(
-                    "value"
+            if consistency_score >= 80.0:
+                evidence.append(
+                    "high_consistency_score"
                 )
 
-                unknown_summary.append(
-                    {
-                        "offset": offset,
-                        "offset_hex": (
-                            format_hex(
-                                offset
-                            )
-                        ),
-                        "value": value,
-                        "hex": (
-                            format_hex(
-                                value
-                            )
-                        ),
-                    }
+            if interpretation_score >= 80.0:
+                evidence.append(
+                    "high_interpretation_score"
+                )
+
+            if midi_ratio >= 0.90:
+                evidence.append(
+                    "strong_midi_value_evidence"
+                )
+
+            if valid_transition_ratio >= 0.90:
+                evidence.append(
+                    "strong_transition_evidence"
+                )
+
+            if compact_range_score >= 0.90:
+                evidence.append(
+                    "compact_midi_range"
+                )
+
+            if unique_count > 1:
+                evidence.append(
+                    "value_changes_across_records"
+                )
+
+            if len(
+                structure_evidence
+            ) > 0:
+                evidence.append(
+                    "mapping_appears_in_reconstructed_structure"
                 )
 
             # -------------------------------------------------------
-            # Raw hex grouped in rows
+            # Conflict detection
             # -------------------------------------------------------
 
-            raw_hex_rows = []
+            conflicts = []
 
-            for start in range(
-                0,
-                len(raw_bytes),
-                16,
+            invalid_values = validation.get(
+                "invalid_values",
+                [],
+            )
+
+            if invalid_values:
+                conflicts.append(
+                    "invalid_midi_values_present"
+                )
+
+            if midi_ratio < 0.75:
+                conflicts.append(
+                    "insufficient_midi_value_ratio"
+                )
+
+            if (
+                validation_score < 55.0
+            ):
+                conflicts.append(
+                    "low_validation_score"
+                )
+
+            if (
+                consistency_score < 50.0
+            ):
+                conflicts.append(
+                    "low_consistency_score"
+                )
+
+            if (
+                interpretation_score > 0.0
+                and interpretation_score < 50.0
+            ):
+                conflicts.append(
+                    "low_interpretation_score"
+                )
+
+            if (
+                record_count < 2
+            ):
+                conflicts.append(
+                    "insufficient_record_count"
+                )
+
+            # -------------------------------------------------------
+            # Change behavior verification
+            # -------------------------------------------------------
+
+            behavior_verification = (
+                "unknown"
+            )
+
+            if (
+                unique_count > 1
+                and 0.0 < change_ratio < 1.0
             ):
 
-                chunk = raw_bytes[
-                    start:start + 16
-                ]
+                behavior_verification = (
+                    "variable_across_kits"
+                )
 
-                raw_hex_rows.append(
-                    {
-                        "start_offset": start,
-                        "end_offset": (
-                            start
-                            + len(chunk)
-                            - 1
-                        ),
-                        "hex": " ".join(
-                            format_hex(
-                                value
-                            )
-                            for value
-                            in chunk
-                        ),
-                    }
+            elif unique_count == 1:
+
+                behavior_verification = (
+                    "constant_across_kits"
+                )
+
+            elif change_ratio >= 0.95:
+
+                behavior_verification = (
+                    "changes_almost_every_record"
                 )
 
             # -------------------------------------------------------
-            # Human-readable status
+            # Final confidence score
             # -------------------------------------------------------
 
-            if reconstruction_confidence == "high":
+            final_confidence_score = (
+                validation_score * 0.35
+                + consistency_score * 0.20
+                + interpretation_score * 0.20
+                + midi_ratio * 100.0 * 0.10
+                + valid_transition_ratio * 100.0 * 0.10
+                + compact_range_score * 100.0 * 0.05
+            )
 
-                status = (
-                    "HIGH CONFIDENCE"
+            # Penalties
+            # -------------------------------------------------------
+
+            if invalid_values:
+                final_confidence_score -= 15.0
+
+            if unique_count == 1:
+                final_confidence_score -= 10.0
+
+            if record_count < 3:
+                final_confidence_score -= 10.0
+
+            if len(
+                conflicts
+            ) >= 3:
+                final_confidence_score -= 10.0
+
+            final_confidence_score = max(
+                min(
+                    final_confidence_score,
+                    100.0,
+                ),
+                0.0,
+            )
+
+            # -------------------------------------------------------
+            # Final classification
+            # -------------------------------------------------------
+
+            if (
+                final_confidence_score >= 90.0
+                and not invalid_values
+                and midi_ratio >= 0.90
+                and record_count >= 3
+            ):
+
+                classification = (
+                    "confirmed_midi_mapping"
+                )
+
+                confidence = (
+                    "very_high"
                 )
 
             elif (
-                reconstruction_confidence
-                == "medium"
+                final_confidence_score >= 80.0
+                and midi_ratio >= 0.80
             ):
 
-                status = (
-                    "MEDIUM CONFIDENCE"
+                classification = (
+                    "high_confidence_midi_mapping"
+                )
+
+                confidence = (
+                    "high"
+                )
+
+            elif (
+                final_confidence_score >= 65.0
+                and midi_ratio >= 0.70
+            ):
+
+                classification = (
+                    "probable_midi_mapping"
+                )
+
+                confidence = (
+                    "medium"
+                )
+
+            elif (
+                final_confidence_score >= 50.0
+            ):
+
+                classification = (
+                    "possible_midi_mapping"
+                )
+
+                confidence = (
+                    "low"
                 )
 
             else:
 
-                status = (
-                    "LOW CONFIDENCE"
+                classification = (
+                    "rejected_mapping_candidate"
+                )
+
+                confidence = (
+                    "very_low"
                 )
 
             # -------------------------------------------------------
-            # Build kit report
+            # Human-readable explanation
             # -------------------------------------------------------
 
-            kit_reports.append(
+            if (
+                classification
+                == "confirmed_midi_mapping"
+            ):
+
+                explanation = (
+                    "Strong cross-analysis evidence "
+                    "indicates that this byte position "
+                    "is very likely a MIDI mapping value."
+                )
+
+            elif (
+                classification
+                == "high_confidence_midi_mapping"
+            ):
+
+                explanation = (
+                    "Multiple independent analyses "
+                    "support this position as a MIDI "
+                    "mapping candidate."
+                )
+
+            elif (
+                classification
+                == "probable_midi_mapping"
+            ):
+
+                explanation = (
+                    "The position shows substantial "
+                    "MIDI-like behavior but requires "
+                    "additional verification."
+                )
+
+            elif (
+                classification
+                == "possible_midi_mapping"
+            ):
+
+                explanation = (
+                    "Some MIDI evidence exists, but "
+                    "the current binary evidence is "
+                    "not sufficient for confirmation."
+                )
+
+            else:
+
+                explanation = (
+                    "Current evidence is insufficient "
+                    "to identify this position as a "
+                    "reliable MIDI mapping."
+                )
+
+            # -------------------------------------------------------
+            # Final result
+            # -------------------------------------------------------
+
+            final_report.append(
                 {
-                    "kit_number": (
-                        record_index
+                    "relative_offset": offset,
+                    "hex_offset": (
+                        f"0x{offset:02X}"
                     ),
-                    "status": status,
-                    "confidence": (
-                        reconstruction_confidence
+                    "record_count": record_count,
+                    "unique_value_count": unique_count,
+                    "unique_values": validation.get(
+                        "unique_values",
+                        [],
                     ),
-                    "reconstruction_score": (
-                        reconstruction_score
+                    "hex_values": validation.get(
+                        "hex_values",
+                        [],
                     ),
-                    "record_size": (
-                        len(raw_bytes)
+                    "midi_note_names": validation.get(
+                        "midi_note_names",
+                        [],
                     ),
-                    "midi_mapping_count": (
-                        len(
-                            midi_mapping_summary
-                        )
+                    "minimum_value": validation.get(
+                        "minimum_value"
                     ),
-                    "mapping_field_count": (
-                        len(
-                            field_summary
-                        )
+                    "maximum_value": validation.get(
+                        "maximum_value"
                     ),
-                    "midi_mappings": (
-                        midi_mapping_summary
+                    "value_range": validation.get(
+                        "value_range"
                     ),
-                    "mapping_fields": (
-                        field_summary
+                    "midi_ratio": round(
+                        midi_ratio,
+                        4,
                     ),
-                    "interpretations": (
-                        interpretation_summary
+                    "change_ratio": round(
+                        change_ratio,
+                        4,
                     ),
-                    "unknown_positions": (
-                        unknown_summary
+                    "valid_transition_ratio": round(
+                        valid_transition_ratio,
+                        4,
                     ),
-                    "raw_hex_rows": (
-                        raw_hex_rows
+                    "compact_range_score": round(
+                        compact_range_score,
+                        4,
+                    ),
+                    "validation_score": round(
+                        validation_score,
+                        2,
+                    ),
+                    "consistency_score": round(
+                        consistency_score,
+                        2,
+                    ),
+                    "interpretation_score": round(
+                        interpretation_score,
+                        2,
+                    ),
+                    "final_confidence_score": round(
+                        final_confidence_score,
+                        2,
+                    ),
+                    "classification": classification,
+                    "confidence": confidence,
+                    "behavior_verification": (
+                        behavior_verification
+                    ),
+                    "evidence": evidence,
+                    "conflicts": conflicts,
+                    "explanation": explanation,
+                    "structure_evidence_count": len(
+                        structure_evidence
                     ),
                 }
             )
 
         # -----------------------------------------------------------
-        # Summary
+        # Sort by final confidence
         # -----------------------------------------------------------
 
-        high_confidence_count = sum(
-            1
-            for kit
-            in kit_reports
-            if kit[
-                "confidence"
-            ]
-            == "high"
-        )
-
-        medium_confidence_count = sum(
-            1
-            for kit
-            in kit_reports
-            if kit[
-                "confidence"
-            ]
-            == "medium"
-        )
-
-        low_confidence_count = sum(
-            1
-            for kit
-            in kit_reports
-            if kit[
-                "confidence"
-            ]
-            == "low"
-        )
-
-        kits_with_midi_mapping = sum(
-            1
-            for kit
-            in kit_reports
-            if kit[
-                "midi_mapping_count"
-            ] > 0
-        )
-
-        total_mapping_positions = sum(
-            kit[
-                "midi_mapping_count"
-            ]
-            for kit
-            in kit_reports
-        )
-
-        total_mapping_fields = sum(
-            kit[
-                "mapping_field_count"
-            ]
-            for kit
-            in kit_reports
-        )
-
-        # -----------------------------------------------------------
-        # Best candidates
-        # -----------------------------------------------------------
-
-        best_midi_candidates = []
-
-        for kit in kit_reports:
-
-            for mapping in kit[
-                "midi_mappings"
-            ]:
-
-                best_midi_candidates.append(
-                    {
-                        "kit_number": (
-                            kit[
-                                "kit_number"
-                            ]
-                        ),
-                        "offset": (
-                            mapping[
-                                "offset"
-                            ]
-                        ),
-                        "value": (
-                            mapping[
-                                "value"
-                            ]
-                        ),
-                        "hex": (
-                            mapping[
-                                "hex"
-                            ]
-                        ),
-                        "midi_note": (
-                            mapping[
-                                "midi_note"
-                            ]
-                        ),
-                        "validation": (
-                            mapping[
-                                "validation"
-                            ]
-                        ),
-                        "confidence": (
-                            mapping[
-                                "confidence"
-                            ]
-                        ),
-                        "score": (
-                            mapping[
-                                "score"
-                            ]
-                        ),
-                    }
-                )
-
-        best_midi_candidates.sort(
+        final_report.sort(
             key=lambda item: (
                 item[
-                    "score"
-                ]
+                    "final_confidence_score"
+                ],
+                item[
+                    "validation_score"
+                ],
+                item[
+                    "consistency_score"
+                ],
             ),
             reverse=True,
         )
 
         # -----------------------------------------------------------
-        # Final report
+        # Add final ranks
         # -----------------------------------------------------------
 
+        for rank, item in enumerate(
+            final_report,
+            start=1,
+        ):
+            item["rank"] = rank
+
+        return final_report
+
+    def find_confirmed_midi_mappings(
+        self,
+    ) -> list[dict]:
+        """
+        Returns only confirmed MIDI mappings.
+        """
+
+        report = (
+            self.verify_mapping_confidence()
+        )
+
+        return [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "confirmed_midi_mapping"
+        ]
+
+    def find_high_confidence_midi_mappings(
+        self,
+    ) -> list[dict]:
+        """
+        Returns confirmed and high-confidence
+        MIDI mappings.
+        """
+
+        report = (
+            self.verify_mapping_confidence()
+        )
+
+        return [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            in (
+                "confirmed_midi_mapping",
+                "high_confidence_midi_mapping",
+            )
+        ]
+
+    def build_final_mapping_verification_report(
+        self,
+    ) -> dict:
+        """
+        Complete #39 final verification report.
+        """
+
+        report = (
+            self.verify_mapping_confidence()
+        )
+
+        confirmed = [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "confirmed_midi_mapping"
+        ]
+
+        high_confidence = [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "high_confidence_midi_mapping"
+        ]
+
+        probable = [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "probable_midi_mapping"
+        ]
+
+        possible = [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "possible_midi_mapping"
+        ]
+
+        rejected = [
+            item
+            for item in report
+            if item[
+                "classification"
+            ]
+            == "rejected_mapping_candidate"
+        ]
+
+        # -----------------------------------------------------------
+        # Determine overall status
+        # -----------------------------------------------------------
+
+        if confirmed:
+
+            overall_status = (
+                "MIDI_MAPPING_CONFIRMED"
+            )
+
+        elif high_confidence:
+
+            overall_status = (
+                "MIDI_MAPPING_HIGH_CONFIDENCE"
+            )
+
+        elif probable:
+
+            overall_status = (
+                "MIDI_MAPPING_PROBABLE"
+            )
+
+        elif possible:
+
+            overall_status = (
+                "MIDI_MAPPING_POSSIBLE"
+            )
+
+        else:
+
+            overall_status = (
+                "NO_RELIABLE_MIDI_MAPPING_FOUND"
+            )
+
+        # -----------------------------------------------------------
+        # Best candidate
+        # -----------------------------------------------------------
+
+        best_candidate = (
+            report[0]
+            if report
+            else None
+        )
+
         return {
-            "title": (
-                "Korg Drum Kit Human-Readable Analysis"
+            "analysis_version": (
+                "#39"
             ),
-            "version": (
-                "#38"
+            "overall_status": (
+                overall_status
             ),
-            "description": (
-                "Human-readable reconstruction of "
-                "Drum Kit binary structure."
+            "candidate_count": (
+                len(report)
             ),
-            "drum_kit_count": len(
-                kit_reports
+            "confirmed_count": (
+                len(confirmed)
             ),
-            "record_size": (
-                self.DRUM_KIT_RECORD_SIZE
+            "high_confidence_count": (
+                len(high_confidence)
             ),
-            "summary": {
-                "high_confidence_kits": (
-                    high_confidence_count
-                ),
-                "medium_confidence_kits": (
-                    medium_confidence_count
-                ),
-                "low_confidence_kits": (
-                    low_confidence_count
-                ),
-                "kits_with_midi_mapping": (
-                    kits_with_midi_mapping
-                ),
-                "total_mapping_positions": (
-                    total_mapping_positions
-                ),
-                "total_mapping_fields": (
-                    total_mapping_fields
-                ),
-            },
-            "best_midi_candidates": (
-                best_midi_candidates
+            "probable_count": (
+                len(probable)
             ),
-            "kits": (
-                kit_reports
+            "possible_count": (
+                len(possible)
+            ),
+            "rejected_count": (
+                len(rejected)
+            ),
+            "best_candidate": (
+                best_candidate
+            ),
+            "confirmed_mappings": (
+                confirmed
+            ),
+            "high_confidence_mappings": (
+                high_confidence
+            ),
+            "probable_mappings": (
+                probable
+            ),
+            "possible_mappings": (
+                possible
+            ),
+            "rejected_candidates": (
+                rejected
+            ),
+            "all_candidates": (
+                report
             ),
             "analysis_chain": [
                 "#32 Mapping Consistency",
@@ -612,44 +792,16 @@
                 "#36 MIDI Mapping Validation",
                 "#37 Drum Kit Structure Reconstruction",
                 "#38 Human-Readable Drum Kit Report",
+                "#39 Final Mapping Confidence & Verification",
             ],
+            "safe_for_editing": False,
+            "write_back_enabled": False,
             "warning": (
-                "Results are analytical candidates only. "
-                "No values are written back to the original "
-                "PCG/SET file."
+                "This report is analytical only. "
+                "No PCG/SET data is modified. "
+                "A confirmed mapping candidate does "
+                "not yet mean that the complete Drum Kit "
+                "binary structure has been decoded."
             ),
         }
-
-    def get_best_midi_mapping_candidates(
-        self,
-    ) -> list[dict]:
-        """
-        Returns the best MIDI mapping candidates
-        from the #38 human-readable report.
-        """
-
-        report = (
-            self.build_human_readable_drum_kit_report()
-        )
-
-        return report.get(
-            "best_midi_candidates",
-            [],
-        )
-
-    def get_drum_kit_report_summary(
-        self,
-    ) -> dict:
-        """
-        Returns only the summary section of #38.
-        """
-
-        report = (
-            self.build_human_readable_drum_kit_report()
-        )
-
-        return report.get(
-            "summary",
-            {},
-        )
 ```

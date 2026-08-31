@@ -1,548 +1,200 @@
-```python
+```python id="r7m3kd"
     # ===============================================================
-    # #37 DRUM KIT STRUCTURE RECONSTRUCTION
+    # #38 HUMAN-READABLE DRUM KIT REPORT
     # ===============================================================
 
-    def reconstruct_drum_kit_structure(
+    def build_human_readable_drum_kit_report(
         self,
-    ) -> list[dict]:
+    ) -> dict:
         """
-        #37
+        #38
 
-        Rekonstruira najvjerojatniju strukturu svakog
-        pronađenog Drum Kit recorda koristeći rezultate:
-
-        #32 - Mapping Consistency
-        #33 - Mapping Relationships
-        #34 - Mapping Fields
-        #35 - Mapping Interpretation
-        #36 - MIDI Mapping Validation
+        Pretvara rezultate #37 u strukturirani,
+        čitljiv izvještaj.
 
         Cilj:
-        - povezati poznate i nepoznate byte pozicije
-        - izgraditi strukturirani prikaz svakog Drum Kit recorda
-        - označiti moguće MIDI mapping pozicije
-        - označiti povezane/konstantne fieldove
-        - zadržati originalne byte vrijednosti
+        - prikazati svaki Drum Kit pregledno
+        - prikazati najbolje MIDI mapping kandidate
+        - prikazati mapping fieldove
+        - prikazati confidence i score
+        - prikazati unknown byte pozicije
+        - omogućiti lakše ručno provjeravanje rezultata
         - NE mijenjati originalni PCG/SET fajl
         """
 
-        records = (
-            self.find_drum_kit_name_records()
+        structure_report = (
+            self.build_drum_kit_structure_report()
         )
 
-        if not records:
-            return []
-
-        consistency_report = (
-            self.analyze_mapping_consistency()
+        reconstructed_kits = structure_report.get(
+            "reconstructed_kits",
+            [],
         )
 
-        field_report = (
-            self.analyze_mapping_fields()
-        )
-
-        interpretation_report = (
-            self.analyze_mapping_field_interpretation()
-        )
-
-        validation_report = (
-            self.validate_midi_mapping_candidates()
-        )
-
-        if not consistency_report:
-            return []
-
-        consistency_by_offset = {
-            item[
-                "relative_offset"
-            ]: item
-            for item in consistency_report
-        }
-
-        field_by_offset = {}
-
-        for field in field_report:
-
-            for offset in field.get(
-                "offsets",
-                [],
-            ):
-
-                field_by_offset[
-                    offset
-                ] = field
-
-        interpretation_by_offset = {}
-
-        for interpretation in interpretation_report:
-
-            for offset in interpretation.get(
-                "offsets",
-                [],
-            ):
-
-                interpretation_by_offset[
-                    offset
-                ] = interpretation
-
-        validation_by_offset = {
-            item[
-                "relative_offset"
-            ]: item
-            for item in validation_report
-        }
-
-        reconstructed_kits = []
+        if not reconstructed_kits:
+            return {
+                "title": (
+                    "Korg Drum Kit Analysis Report"
+                ),
+                "drum_kit_count": 0,
+                "kits": [],
+                "summary": {
+                    "high_confidence_kits": 0,
+                    "kits_with_midi_mapping": 0,
+                    "total_mapping_positions": 0,
+                    "total_mapping_fields": 0,
+                },
+            }
 
         # -----------------------------------------------------------
-        # Determine record size
+        # Helper functions
         # -----------------------------------------------------------
 
-        record_size = (
-            self.DRUM_KIT_RECORD_SIZE
-        )
-
-        # -----------------------------------------------------------
-        # Process every Drum Kit record
-        # -----------------------------------------------------------
-
-        for record_index, record in enumerate(
-            records,
-            start=1,
+        def format_hex(
+            value,
         ):
-
-            # -------------------------------------------------------
-            # Raw record bytes
-            # -------------------------------------------------------
-
             try:
-                raw_bytes = bytes(
-                    record
-                )
+                return f"{int(value):02X}"
             except (
                 TypeError,
                 ValueError,
             ):
-                raw_bytes = bytes(
-                    record[:record_size]
-                )
+                return "??"
 
-            raw_bytes = raw_bytes[
-                :record_size
-            ]
-
-            # -------------------------------------------------------
-            # Build byte-level structure
-            # -------------------------------------------------------
-
-            byte_fields = []
-
-            for offset in range(
-                len(raw_bytes)
-            ):
-
-                value = raw_bytes[
-                    offset
-                ]
-
-                consistency = (
-                    consistency_by_offset.get(
-                        offset
-                    )
-                )
-
-                field = (
-                    field_by_offset.get(
-                        offset
-                    )
-                )
-
-                interpretation = (
-                    interpretation_by_offset.get(
-                        offset
-                    )
-                )
-
-                validation = (
-                    validation_by_offset.get(
-                        offset
-                    )
-                )
-
-                midi_note_name = None
-
+        def safe_note_name(
+            value,
+        ):
+            try:
                 if (
-                    value >= 0
-                    and value <= 127
-                ):
-
-                    try:
-                        midi_note_name = (
-                            midi_to_note(
-                                value
-                            )
-                        )
-                    except Exception:
-                        midi_note_name = None
-
-                byte_fields.append(
-                    {
-                        "relative_offset": (
-                            offset
-                        ),
-                        "value": (
-                            value
-                        ),
-                        "hex": (
-                            f"{value:02X}"
-                        ),
-                        "binary": (
-                            f"{value:08b}"
-                        ),
-                        "midi_note_name": (
-                            midi_note_name
-                        ),
-                        "consistency_score": (
-                            consistency.get(
-                                "consistency_score",
-                                0.0,
-                            )
-                            if consistency
-                            else 0.0
-                        ),
-                        "consistency_classification": (
-                            consistency.get(
-                                "classification"
-                            )
-                            if consistency
-                            else None
-                        ),
-                        "field_id": (
-                            field.get(
-                                "field_id"
-                            )
-                            if field
-                            else None
-                        ),
-                        "field_classification": (
-                            field.get(
-                                "classification"
-                            )
-                            if field
-                            else None
-                        ),
-                        "interpretation": (
-                            interpretation.get(
-                                "interpretation"
-                            )
-                            if interpretation
-                            else None
-                        ),
-                        "interpretation_confidence": (
-                            interpretation.get(
-                                "confidence"
-                            )
-                            if interpretation
-                            else None
-                        ),
-                        "validation": (
-                            validation.get(
-                                "validation"
-                            )
-                            if validation
-                            else None
-                        ),
-                        "validation_confidence": (
-                            validation.get(
-                                "confidence"
-                            )
-                            if validation
-                            else None
-                        ),
-                        "validation_score": (
-                            validation.get(
-                                "validation_score",
-                                0.0,
-                            )
-                            if validation
-                            else 0.0
-                        ),
-                    }
-                )
-
-            # -------------------------------------------------------
-            # Identify mapping positions
-            # -------------------------------------------------------
-
-            midi_mapping_positions = []
-
-            for offset, validation in (
-                validation_by_offset.items()
-            ):
-
-                if (
-                    offset < 0
-                    or offset >= len(raw_bytes)
-                ):
-                    continue
-
-                if validation.get(
-                    "validation"
-                ) in (
-                    "validated_midi_mapping",
-                    "probable_midi_mapping",
-                ):
-
-                    value = raw_bytes[
-                        offset
-                    ]
-
-                    midi_note_name = None
-
-                    try:
-                        midi_note_name = (
-                            midi_to_note(
-                                value
-                            )
-                        )
-                    except Exception:
-                        midi_note_name = None
-
-                    midi_mapping_positions.append(
-                        {
-                            "relative_offset": (
-                                offset
-                            ),
-                            "value": (
-                                value
-                            ),
-                            "hex": (
-                                f"{value:02X}"
-                            ),
-                            "midi_note_name": (
-                                midi_note_name
-                            ),
-                            "validation": (
-                                validation[
-                                    "validation"
-                                ]
-                            ),
-                            "confidence": (
-                                validation[
-                                    "confidence"
-                                ]
-                            ),
-                            "validation_score": (
-                                validation[
-                                    "validation_score"
-                                ]
-                            ),
-                        }
+                    isinstance(
+                        value,
+                        int,
                     )
+                    and 0 <= value <= 127
+                ):
+                    return midi_to_note(
+                        value
+                    )
+            except Exception:
+                pass
 
-            midi_mapping_positions.sort(
-                key=lambda item: (
-                    item[
-                        "validation_score"
-                    ]
-                ),
-                reverse=True,
+            return None
+
+        # -----------------------------------------------------------
+        # Build human-readable kit reports
+        # -----------------------------------------------------------
+
+        kit_reports = []
+
+        for kit in reconstructed_kits:
+
+            record_index = kit.get(
+                "record_index"
+            )
+
+            raw_bytes = kit.get(
+                "raw_bytes",
+                [],
+            )
+
+            midi_positions = kit.get(
+                "midi_mapping_positions",
+                [],
+            )
+
+            mapping_fields = kit.get(
+                "mapping_fields",
+                [],
+            )
+
+            interpreted_fields = kit.get(
+                "interpreted_fields",
+                [],
+            )
+
+            unknown_positions = kit.get(
+                "unknown_positions",
+                [],
+            )
+
+            reconstruction_score = kit.get(
+                "reconstruction_score",
+                0.0,
+            )
+
+            reconstruction_confidence = (
+                kit.get(
+                    "reconstruction_confidence",
+                    "low",
+                )
             )
 
             # -------------------------------------------------------
-            # Identify possible mapping fields
+            # MIDI mapping summary
             # -------------------------------------------------------
 
-            mapping_fields = []
+            midi_mapping_summary = []
 
-            for field in field_report:
+            for mapping in midi_positions:
 
-                field_offsets = field.get(
-                    "offsets",
-                    [],
+                offset = mapping.get(
+                    "relative_offset"
                 )
 
-                if not field_offsets:
-                    continue
+                value = mapping.get(
+                    "value"
+                )
 
-                if any(
-                    offset < len(raw_bytes)
-                    for offset in field_offsets
-                ):
+                note_name = mapping.get(
+                    "midi_note_name"
+                )
 
-                    mapping_fields.append(
-                        {
-                            "field_id": (
-                                field.get(
-                                    "field_id"
-                                )
-                            ),
-                            "offsets": (
-                                field_offsets
-                            ),
-                            "start_offset": (
-                                field.get(
-                                    "start_offset"
-                                )
-                            ),
-                            "end_offset": (
-                                field.get(
-                                    "end_offset"
-                                )
-                            ),
-                            "field_size": (
-                                field.get(
-                                    "field_size"
-                                )
-                            ),
-                            "group_score": (
-                                field.get(
-                                    "group_score",
-                                    0.0,
-                                )
-                            ),
-                            "classification": (
-                                field.get(
-                                    "classification"
-                                )
-                            ),
-                            "evidence": (
-                                field.get(
-                                    "evidence",
-                                    [],
-                                )
-                            ),
-                        }
+                if note_name is None:
+                    note_name = safe_note_name(
+                        value
                     )
 
-            # -------------------------------------------------------
-            # Identify interpreted fields
-            # -------------------------------------------------------
-
-            interpreted_fields = []
-
-            for interpretation in (
-                interpretation_report
-            ):
-
-                offsets = interpretation.get(
-                    "offsets",
-                    [],
-                )
-
-                if not offsets:
-                    continue
-
-                field_values = {}
-
-                for offset in offsets:
-
-                    if (
-                        offset < 0
-                        or offset >= len(raw_bytes)
-                    ):
-                        continue
-
-                    value = raw_bytes[
-                        offset
-                    ]
-
-                    field_values[
-                        offset
-                    ] = {
-                        "value": value,
-                        "hex": f"{value:02X}",
-                    }
-
-                interpreted_fields.append(
+                midi_mapping_summary.append(
                     {
-                        "field_id": (
-                            interpretation.get(
-                                "field_id"
+                        "offset": offset,
+                        "offset_hex": (
+                            format_hex(
+                                offset
                             )
                         ),
-                        "offsets": offsets,
-                        "values": field_values,
-                        "interpretation": (
-                            interpretation.get(
-                                "interpretation"
+                        "value": value,
+                        "hex": (
+                            format_hex(
+                                value
+                            )
+                        ),
+                        "midi_note": (
+                            note_name
+                        ),
+                        "validation": (
+                            mapping.get(
+                                "validation"
                             )
                         ),
                         "confidence": (
-                            interpretation.get(
+                            mapping.get(
                                 "confidence"
                             )
                         ),
-                        "interpretation_score": (
-                            interpretation.get(
-                                "interpretation_score",
+                        "score": (
+                            mapping.get(
+                                "validation_score",
                                 0.0,
                             )
                         ),
-                        "midi_mapping": (
-                            interpretation.get(
-                                "midi_mapping"
-                            )
-                        ),
-                        "evidence": (
-                            interpretation.get(
-                                "evidence",
-                                [],
-                            )
-                        ),
                     }
                 )
 
             # -------------------------------------------------------
-            # Unknown positions
+            # Mapping field summary
             # -------------------------------------------------------
 
-            known_offsets = set()
-
-            for field in field_report:
-
-                for offset in field.get(
-                    "offsets",
-                    [],
-                ):
-
-                    known_offsets.add(
-                        offset
-                    )
-
-            unknown_positions = []
-
-            for offset in range(
-                len(raw_bytes)
-            ):
-
-                if offset in known_offsets:
-                    continue
-
-                value = raw_bytes[
-                    offset
-                ]
-
-                unknown_positions.append(
-                    {
-                        "relative_offset": (
-                            offset
-                        ),
-                        "value": (
-                            value
-                        ),
-                        "hex": (
-                            f"{value:02X}"
-                        ),
-                    }
-                )
-
-            # -------------------------------------------------------
-            # Group positions by field
-            # -------------------------------------------------------
-
-            field_groups = []
+            field_summary = []
 
             for field in mapping_fields:
 
@@ -551,316 +203,453 @@
                     [],
                 )
 
-                values = []
+                offset_text = ", ".join(
+                    f"0x{format_hex(offset)}"
+                    for offset in offsets
+                )
 
-                for offset in offsets:
-
-                    if (
-                        0 <= offset
-                        < len(raw_bytes)
-                    ):
-
-                        value = raw_bytes[
-                            offset
-                        ]
-
-                        values.append(
-                            {
-                                "relative_offset": (
-                                    offset
-                                ),
-                                "value": (
-                                    value
-                                ),
-                                "hex": (
-                                    f"{value:02X}"
-                                ),
-                            }
-                        )
-
-                field_groups.append(
+                field_summary.append(
                     {
-                        "field_id": field.get(
-                            "field_id"
-                        ),
-                        "offsets": offsets,
-                        "values": values,
-                        "classification": (
+                        "field_id": (
                             field.get(
-                                "classification"
+                                "field_id"
                             )
                         ),
-                        "group_score": (
+                        "offsets": offsets,
+                        "offset_range": (
+                            f"0x{format_hex(field.get('start_offset'))}"
+                            f"-0x{format_hex(field.get('end_offset'))}"
+                        ),
+                        "offset_text": (
+                            offset_text
+                        ),
+                        "field_size": (
+                            field.get(
+                                "field_size"
+                            )
+                        ),
+                        "score": (
                             field.get(
                                 "group_score",
                                 0.0,
+                            )
+                        ),
+                        "classification": (
+                            field.get(
+                                "classification"
                             )
                         ),
                     }
                 )
 
             # -------------------------------------------------------
-            # Calculate reconstruction confidence
+            # Interpretation summary
             # -------------------------------------------------------
 
-            strong_mapping_count = len(
-                [
-                    item
-                    for item
-                    in midi_mapping_positions
-                    if item[
-                        "validation"
-                    ]
-                    == "validated_midi_mapping"
-                ]
-            )
+            interpretation_summary = []
 
-            probable_mapping_count = len(
-                [
-                    item
-                    for item
-                    in midi_mapping_positions
-                    if item[
-                        "validation"
-                    ]
-                    == "probable_midi_mapping"
-                ]
-            )
+            for field in interpreted_fields:
 
-            strong_field_count = len(
-                [
-                    field
-                    for field
-                    in mapping_fields
-                    if field[
-                        "classification"
-                    ]
-                    == "strong_mapping_field"
-                ]
-            )
+                interpretation_summary.append(
+                    {
+                        "field_id": (
+                            field.get(
+                                "field_id"
+                            )
+                        ),
+                        "offsets": (
+                            field.get(
+                                "offsets",
+                                [],
+                            )
+                        ),
+                        "interpretation": (
+                            field.get(
+                                "interpretation"
+                            )
+                        ),
+                        "confidence": (
+                            field.get(
+                                "confidence"
+                            )
+                        ),
+                        "score": (
+                            field.get(
+                                "interpretation_score",
+                                0.0,
+                            )
+                        ),
+                        "midi_mapping": (
+                            field.get(
+                                "midi_mapping"
+                            )
+                        ),
+                        "evidence": (
+                            field.get(
+                                "evidence",
+                                [],
+                            )
+                        ),
+                    }
+                )
 
-            average_validation_score = (
-                sum(
-                    item[
-                        "validation_score"
-                    ]
-                    for item
-                    in validation_report
-                )
-                / len(
-                    validation_report
-                )
-                if validation_report
-                else 0.0
-            )
+            # -------------------------------------------------------
+            # Unknown byte summary
+            # -------------------------------------------------------
 
-            reconstruction_score = (
-                min(
-                    strong_mapping_count * 20.0,
-                    40.0,
-                )
-                + min(
-                    probable_mapping_count * 10.0,
-                    20.0,
-                )
-                + min(
-                    strong_field_count * 15.0,
-                    20.0,
-                )
-                + (
-                    average_validation_score
-                    * 0.20
-                )
-            )
+            unknown_summary = []
 
-            reconstruction_score = min(
-                reconstruction_score,
-                100.0,
-            )
+            for unknown in unknown_positions:
 
-            if (
-                reconstruction_score >= 85.0
+                offset = unknown.get(
+                    "relative_offset"
+                )
+
+                value = unknown.get(
+                    "value"
+                )
+
+                unknown_summary.append(
+                    {
+                        "offset": offset,
+                        "offset_hex": (
+                            format_hex(
+                                offset
+                            )
+                        ),
+                        "value": value,
+                        "hex": (
+                            format_hex(
+                                value
+                            )
+                        ),
+                    }
+                )
+
+            # -------------------------------------------------------
+            # Raw hex grouped in rows
+            # -------------------------------------------------------
+
+            raw_hex_rows = []
+
+            for start in range(
+                0,
+                len(raw_bytes),
+                16,
             ):
 
-                reconstruction_confidence = (
-                    "high"
+                chunk = raw_bytes[
+                    start:start + 16
+                ]
+
+                raw_hex_rows.append(
+                    {
+                        "start_offset": start,
+                        "end_offset": (
+                            start
+                            + len(chunk)
+                            - 1
+                        ),
+                        "hex": " ".join(
+                            format_hex(
+                                value
+                            )
+                            for value
+                            in chunk
+                        ),
+                    }
+                )
+
+            # -------------------------------------------------------
+            # Human-readable status
+            # -------------------------------------------------------
+
+            if reconstruction_confidence == "high":
+
+                status = (
+                    "HIGH CONFIDENCE"
                 )
 
             elif (
-                reconstruction_score >= 65.0
+                reconstruction_confidence
+                == "medium"
             ):
 
-                reconstruction_confidence = (
-                    "medium"
+                status = (
+                    "MEDIUM CONFIDENCE"
                 )
 
             else:
 
-                reconstruction_confidence = (
-                    "low"
+                status = (
+                    "LOW CONFIDENCE"
                 )
 
             # -------------------------------------------------------
-            # Final reconstructed Drum Kit
+            # Build kit report
             # -------------------------------------------------------
 
-            reconstructed_kits.append(
+            kit_reports.append(
                 {
-                    "record_index": (
+                    "kit_number": (
                         record_index
+                    ),
+                    "status": status,
+                    "confidence": (
+                        reconstruction_confidence
+                    ),
+                    "reconstruction_score": (
+                        reconstruction_score
                     ),
                     "record_size": (
                         len(raw_bytes)
                     ),
-                    "raw_hex": (
-                        " ".join(
-                            f"{value:02X}"
-                            for value
-                            in raw_bytes
+                    "midi_mapping_count": (
+                        len(
+                            midi_mapping_summary
                         )
                     ),
-                    "raw_bytes": list(
-                        raw_bytes
+                    "mapping_field_count": (
+                        len(
+                            field_summary
+                        )
                     ),
-                    "reconstruction_score": round(
-                        reconstruction_score,
-                        2,
-                    ),
-                    "reconstruction_confidence": (
-                        reconstruction_confidence
-                    ),
-                    "midi_mapping_positions": (
-                        midi_mapping_positions
+                    "midi_mappings": (
+                        midi_mapping_summary
                     ),
                     "mapping_fields": (
-                        mapping_fields
+                        field_summary
                     ),
-                    "interpreted_fields": (
-                        interpreted_fields
-                    ),
-                    "field_groups": (
-                        field_groups
+                    "interpretations": (
+                        interpretation_summary
                     ),
                     "unknown_positions": (
-                        unknown_positions
+                        unknown_summary
                     ),
-                    "byte_fields": (
-                        byte_fields
+                    "raw_hex_rows": (
+                        raw_hex_rows
                     ),
                 }
             )
 
-        return reconstructed_kits
+        # -----------------------------------------------------------
+        # Summary
+        # -----------------------------------------------------------
 
-    def find_high_confidence_drum_kits(
-        self,
-    ) -> list[dict]:
-        """
-        Returns reconstructed Drum Kits with
-        high reconstruction confidence.
-        """
-
-        report = (
-            self.reconstruct_drum_kit_structure()
-        )
-
-        return [
-            item
-            for item in report
-            if item[
-                "reconstruction_confidence"
+        high_confidence_count = sum(
+            1
+            for kit
+            in kit_reports
+            if kit[
+                "confidence"
             ]
             == "high"
-        ]
-
-    def find_reconstructed_midi_mappings(
-        self,
-    ) -> list[dict]:
-        """
-        Returns all reconstructed Drum Kits
-        that contain validated or probable
-        MIDI mapping positions.
-        """
-
-        report = (
-            self.reconstruct_drum_kit_structure()
         )
 
-        return [
-            item
-            for item in report
-            if item[
-                "midi_mapping_positions"
+        medium_confidence_count = sum(
+            1
+            for kit
+            in kit_reports
+            if kit[
+                "confidence"
             ]
-        ]
-
-    def build_drum_kit_structure_report(
-        self,
-    ) -> dict:
-        """
-        Complete #37 Drum Kit structure report.
-        """
-
-        report = (
-            self.reconstruct_drum_kit_structure()
+            == "medium"
         )
 
-        high_confidence = [
-            item
-            for item in report
-            if item[
-                "reconstruction_confidence"
+        low_confidence_count = sum(
+            1
+            for kit
+            in kit_reports
+            if kit[
+                "confidence"
             ]
-            == "high"
-        ]
+            == "low"
+        )
 
-        kits_with_midi_mapping = [
-            item
-            for item in report
-            if item[
-                "midi_mapping_positions"
-            ]
-        ]
+        kits_with_midi_mapping = sum(
+            1
+            for kit
+            in kit_reports
+            if kit[
+                "midi_mapping_count"
+            ] > 0
+        )
 
         total_mapping_positions = sum(
-            len(
-                item[
-                    "midi_mapping_positions"
-                ]
-            )
-            for item in report
+            kit[
+                "midi_mapping_count"
+            ]
+            for kit
+            in kit_reports
         )
 
         total_mapping_fields = sum(
-            len(
-                item[
-                    "mapping_fields"
-                ]
-            )
-            for item in report
+            kit[
+                "mapping_field_count"
+            ]
+            for kit
+            in kit_reports
         )
 
+        # -----------------------------------------------------------
+        # Best candidates
+        # -----------------------------------------------------------
+
+        best_midi_candidates = []
+
+        for kit in kit_reports:
+
+            for mapping in kit[
+                "midi_mappings"
+            ]:
+
+                best_midi_candidates.append(
+                    {
+                        "kit_number": (
+                            kit[
+                                "kit_number"
+                            ]
+                        ),
+                        "offset": (
+                            mapping[
+                                "offset"
+                            ]
+                        ),
+                        "value": (
+                            mapping[
+                                "value"
+                            ]
+                        ),
+                        "hex": (
+                            mapping[
+                                "hex"
+                            ]
+                        ),
+                        "midi_note": (
+                            mapping[
+                                "midi_note"
+                            ]
+                        ),
+                        "validation": (
+                            mapping[
+                                "validation"
+                            ]
+                        ),
+                        "confidence": (
+                            mapping[
+                                "confidence"
+                            ]
+                        ),
+                        "score": (
+                            mapping[
+                                "score"
+                            ]
+                        ),
+                    }
+                )
+
+        best_midi_candidates.sort(
+            key=lambda item: (
+                item[
+                    "score"
+                ]
+            ),
+            reverse=True,
+        )
+
+        # -----------------------------------------------------------
+        # Final report
+        # -----------------------------------------------------------
+
         return {
+            "title": (
+                "Korg Drum Kit Human-Readable Analysis"
+            ),
+            "version": (
+                "#38"
+            ),
+            "description": (
+                "Human-readable reconstruction of "
+                "Drum Kit binary structure."
+            ),
             "drum_kit_count": len(
-                report
+                kit_reports
             ),
             "record_size": (
                 self.DRUM_KIT_RECORD_SIZE
             ),
-            "reconstructed_kits": (
-                report
+            "summary": {
+                "high_confidence_kits": (
+                    high_confidence_count
+                ),
+                "medium_confidence_kits": (
+                    medium_confidence_count
+                ),
+                "low_confidence_kits": (
+                    low_confidence_count
+                ),
+                "kits_with_midi_mapping": (
+                    kits_with_midi_mapping
+                ),
+                "total_mapping_positions": (
+                    total_mapping_positions
+                ),
+                "total_mapping_fields": (
+                    total_mapping_fields
+                ),
+            },
+            "best_midi_candidates": (
+                best_midi_candidates
             ),
-            "high_confidence_kits": (
-                high_confidence
+            "kits": (
+                kit_reports
             ),
-            "kits_with_midi_mapping": (
-                kits_with_midi_mapping
-            ),
-            "total_mapping_positions": (
-                total_mapping_positions
-            ),
-            "total_mapping_fields": (
-                total_mapping_fields
+            "analysis_chain": [
+                "#32 Mapping Consistency",
+                "#33 Mapping Relationships",
+                "#34 Mapping Field Detection",
+                "#35 Mapping Field Interpretation",
+                "#36 MIDI Mapping Validation",
+                "#37 Drum Kit Structure Reconstruction",
+                "#38 Human-Readable Drum Kit Report",
+            ],
+            "warning": (
+                "Results are analytical candidates only. "
+                "No values are written back to the original "
+                "PCG/SET file."
             ),
         }
+
+    def get_best_midi_mapping_candidates(
+        self,
+    ) -> list[dict]:
+        """
+        Returns the best MIDI mapping candidates
+        from the #38 human-readable report.
+        """
+
+        report = (
+            self.build_human_readable_drum_kit_report()
+        )
+
+        return report.get(
+            "best_midi_candidates",
+            [],
+        )
+
+    def get_drum_kit_report_summary(
+        self,
+    ) -> dict:
+        """
+        Returns only the summary section of #38.
+        """
+
+        report = (
+            self.build_human_readable_drum_kit_report()
+        )
+
+        return report.get(
+            "summary",
+            {},
+        )
 ```

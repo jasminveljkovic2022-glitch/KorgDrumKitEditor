@@ -1,481 +1,185 @@
 ```python id="k9x4pm"
+    ```python
     # ===============================================================
-    # #43 DRUM KIT EDITOR DATA INTERFACE
+    # #45 MIDI MAPPING EDITOR INTERFACE
     # ===============================================================
 
-    def build_editor_kit_list(
+    def build_midi_mapping_editor(
         self,
         session: dict,
-    ) -> list[dict]:
+        kit_index: int,
+    ) -> dict:
         """
-        #43
+        #45
 
-        Priprema jednostavan spisak Drum Kitova za GUI.
+        Priprema kompletan MIDI Mapping prikaz
+        za GUI editor.
 
-        Svaki element sadrži:
-        - kit index
-        - naziv
-        - record size
-        - confidence
-        - MIDI mapping count
-        - field count
-        - change status
+        Koristi postojeći #43 mapping model.
+
+        NE mijenja originalni SET/PCG fajl.
         """
 
-        if not isinstance(
-            session,
-            dict,
-        ):
+        if not isinstance(session, dict):
             raise TypeError(
                 "session must be a dictionary."
             )
 
-        model = session.get(
-            "model",
-            {},
-        )
-
-        kits = model.get(
-            "kits",
-            [],
-        )
-
-        result = []
-
-        for kit in kits:
-
-            mapping = kit.get(
-                "mapping",
-                {},
-            )
-
-            reconstruction = kit.get(
-                "reconstruction",
-                {},
-            )
-
-            statistics = kit.get(
-                "statistics",
-                {},
-            )
-
-            result.append(
-                {
-                    "kit_index": kit.get(
-                        "kit_index"
-                    ),
-                    "kit_name": kit.get(
-                        "kit_name"
-                    ),
-                    "record_size": kit.get(
-                        "record_size"
-                    ),
-                    "confidence": reconstruction.get(
-                        "confidence"
-                    ),
-                    "reconstruction_score": reconstruction.get(
-                        "score",
-                        0.0,
-                    ),
-                    "confirmed_midi_count": len(
-                        mapping.get(
-                            "confirmed",
-                            [],
-                        )
-                    ),
-                    "probable_midi_count": len(
-                        mapping.get(
-                            "probable",
-                            [],
-                        )
-                    ),
-                    "possible_mapping_count": len(
-                        mapping.get(
-                            "possible",
-                            [],
-                        )
-                    ),
-                    "field_count": len(
-                        kit.get(
-                            "fields",
-                            [],
-                        )
-                    ),
-                    "unknown_parameter_count": statistics.get(
-                        "unknown_parameter_count",
-                        0,
-                    ),
-                    "dirty": session.get(
-                        "dirty",
-                        False,
-                    ),
-                }
-            )
-
-        return result
-
-    def build_editor_parameter_list(
-        self,
-        session: dict,
-        kit_index: int,
-    ) -> list[dict]:
-        """
-        #43
-
-        Priprema byte parametre jednog Drum Kita
-        za GUI prikaz.
-        """
-
         kit = self._find_session_kit(
             session,
             kit_index,
         )
 
-        parameters = kit.get(
-            "parameters",
-            [],
+        mappings = self.build_editor_midi_mapping_list(
+            session,
+            kit_index,
         )
 
         result = []
 
-        for parameter in parameters:
+        for mapping in mappings:
 
-            parameter_type = parameter.get(
-                "parameter_type",
-                "unknown",
+            midi_note = mapping.get(
+                "midi_note"
             )
 
-            if parameter_type == "midi_mapping":
+            try:
+                if midi_note is not None:
+                    midi_note = int(midi_note)
+            except (TypeError, ValueError):
+                midi_note = None
 
-                editor_type = (
-                    "midi"
-                )
+            midi_valid = (
+                midi_note is not None
+                and 0 <= midi_note <= 127
+            )
 
-            elif parameter_type == (
-                "probable_midi_mapping"
-            ):
-
-                editor_type = (
-                    "midi_candidate"
-                )
-
-            elif parameter_type == (
-                "possible_mapping"
-            ):
-
-                editor_type = (
-                    "possible_mapping"
-                )
-
+            if midi_valid:
+                try:
+                    note_name = midi_to_note(
+                        midi_note
+                    )
+                except Exception:
+                    note_name = (
+                        mapping.get(
+                            "midi_note_name"
+                        )
+                        or ""
+                    )
             else:
-
-                editor_type = (
-                    "byte"
+                note_name = (
+                    mapping.get(
+                        "midi_note_name"
+                    )
+                    or ""
                 )
+
+            confidence_score = mapping.get(
+                "confidence_score",
+                0.0,
+            )
+
+            try:
+                confidence_score = float(
+                    confidence_score
+                )
+            except (TypeError, ValueError):
+                confidence_score = 0.0
 
             result.append(
                 {
-                    "offset": parameter.get(
+                    "kit_index": kit_index,
+                    "offset": mapping.get(
                         "offset"
                     ),
-                    "hex_offset": parameter.get(
+                    "hex_offset": mapping.get(
                         "hex_offset"
                     ),
-                    "value": parameter.get(
+                    "value": mapping.get(
                         "value"
                     ),
-                    "hex": parameter.get(
+                    "hex": mapping.get(
                         "hex"
                     ),
-                    "editor_type": editor_type,
-                    "parameter_type": parameter_type,
-                    "classification": parameter.get(
+                    "midi_note": midi_note,
+                    "midi_note_name": note_name,
+                    "midi_valid": midi_valid,
+                    "parameter_type": mapping.get(
+                        "parameter_type"
+                    ),
+                    "classification": mapping.get(
                         "classification"
                     ),
-                    "confidence": parameter.get(
+                    "confidence": mapping.get(
                         "confidence"
                     ),
-                    "confidence_score": parameter.get(
-                        "confidence_score",
-                        0.0,
-                    ),
-                    "midi_note": parameter.get(
-                        "midi_note"
-                    ),
-                    "midi_note_name": parameter.get(
-                        "midi_note_name"
+                    "confidence_score": round(
+                        confidence_score,
+                        2,
                     ),
                     "editable": True,
+                    "source_file_modified": False,
                 }
             )
-
-        return result
-
-    def build_editor_midi_mapping_list(
-        self,
-        session: dict,
-        kit_index: int,
-    ) -> list[dict]:
-        """
-        #43
-
-        Vraća samo MIDI mapping kandidate
-        za odabrani Drum Kit.
-        """
-
-        kit = self._find_session_kit(
-            session,
-            kit_index,
-        )
-
-        mapping = kit.get(
-            "mapping",
-            {},
-        )
-
-        result = []
-
-        for category in (
-            "confirmed",
-            "probable",
-            "possible",
-        ):
-
-            candidates = mapping.get(
-                category,
-                [],
-            )
-
-            for candidate in candidates:
-
-                result.append(
-                    {
-                        "kit_index": kit_index,
-                        "offset": candidate.get(
-                            "offset"
-                        ),
-                        "hex_offset": candidate.get(
-                            "hex_offset"
-                        ),
-                        "value": candidate.get(
-                            "value"
-                        ),
-                        "hex": candidate.get(
-                            "hex"
-                        ),
-                        "midi_note": candidate.get(
-                            "midi_note"
-                        ),
-                        "midi_note_name": candidate.get(
-                            "midi_note_name"
-                        ),
-                        "parameter_type": candidate.get(
-                            "parameter_type"
-                        ),
-                        "classification": candidate.get(
-                            "classification"
-                        ),
-                        "confidence": candidate.get(
-                            "confidence"
-                        ),
-                        "confidence_score": candidate.get(
-                            "confidence_score",
-                            0.0,
-                        ),
-                    }
-                )
 
         result.sort(
             key=lambda item: (
-                item.get(
-                    "offset",
-                    0,
-                )
+                item.get("midi_note")
+                if item.get("midi_note") is not None
+                else 999,
+                item.get("offset")
+                if item.get("offset") is not None
+                else 999999,
             )
         )
 
-        return result
-
-    def build_editor_field_list(
-        self,
-        session: dict,
-        kit_index: int,
-    ) -> list[dict]:
-        """
-        #43
-
-        Vraća field strukturu odabranog Drum Kita.
-        """
-
-        kit = self._find_session_kit(
-            session,
-            kit_index,
-        )
-
-        return [
-            {
-                "field_id": field.get(
-                    "field_id"
-                ),
-                "offsets": list(
-                    field.get(
-                        "offsets",
-                        [],
-                    )
-                ),
-                "start_offset": field.get(
-                    "start_offset"
-                ),
-                "end_offset": field.get(
-                    "end_offset"
-                ),
-                "field_size": field.get(
-                    "field_size"
-                ),
-                "classification": field.get(
-                    "classification"
-                ),
-                "score": field.get(
-                    "score",
-                    0.0,
-                ),
-                "parameter_count": len(
-                    field.get(
-                        "parameters",
-                        [],
-                    )
-                ),
-            }
-            for field
-            in kit.get(
-                "fields",
-                [],
+        confirmed_count = sum(
+            1
+            for item in result
+            if (
+                item.get("classification")
+                == "confirmed"
+                or item.get("parameter_type")
+                == "midi_mapping"
             )
-        ]
+        )
 
-    def edit_editor_parameter(
-        self,
-        session: dict,
-        kit_index: int,
-        relative_offset: int,
-        value: int,
-    ) -> dict:
-        """
-        #43
+        probable_count = sum(
+            1
+            for item in result
+            if (
+                item.get("classification")
+                == "probable"
+                or item.get("parameter_type")
+                == "probable_midi_mapping"
+            )
+        )
 
-        GUI-friendly wrapper oko #42 edit_session_byte().
-        """
+        possible_count = sum(
+            1
+            for item in result
+            if (
+                item.get("classification")
+                == "possible"
+                or item.get("parameter_type")
+                == "possible_mapping"
+            )
+        )
 
-        result = self.edit_session_byte(
-            session=session,
-            kit_index=kit_index,
-            relative_offset=relative_offset,
-            value=value,
+        valid_midi_count = sum(
+            1
+            for item in result
+            if item.get(
+                "midi_valid",
+                False,
+            )
         )
 
         return {
-            "success": result.get(
-                "success",
-                False,
-            ),
-            "changed": result.get(
-                "changed",
-                False,
-            ),
-            "kit_index": kit_index,
-            "relative_offset": relative_offset,
-            "change": result.get(
-                "change"
-            ),
-            "dirty": session.get(
-                "dirty",
-                False,
-            ),
-            "undo_available": session.get(
-                "undo_available",
-                False,
-            ),
-            "redo_available": session.get(
-                "redo_available",
-                False,
-            ),
-            "source_file_modified": False,
-        }
-
-    def edit_editor_midi_mapping(
-        self,
-        session: dict,
-        kit_index: int,
-        relative_offset: int,
-        midi_note: int,
-    ) -> dict:
-        """
-        #43
-
-        GUI-friendly wrapper oko MIDI note editora.
-        """
-
-        result = self.edit_session_midi_note(
-            session=session,
-            kit_index=kit_index,
-            relative_offset=relative_offset,
-            midi_note=midi_note,
-        )
-
-        return {
-            "success": result.get(
-                "success",
-                False,
-            ),
-            "changed": result.get(
-                "changed",
-                False,
-            ),
-            "kit_index": kit_index,
-            "relative_offset": relative_offset,
-            "midi_note": result.get(
-                "midi_note"
-            ),
-            "midi_note_name": result.get(
-                "midi_note_name"
-            ),
-            "change": result.get(
-                "change"
-            ),
-            "dirty": session.get(
-                "dirty",
-                False,
-            ),
-            "undo_available": session.get(
-                "undo_available",
-                False,
-            ),
-            "redo_available": session.get(
-                "redo_available",
-                False,
-            ),
-            "source_file_modified": False,
-        }
-
-    def build_editor_selected_kit_data(
-        self,
-        session: dict,
-        kit_index: int,
-    ) -> dict:
-        """
-        #43
-
-        Glavni GUI data paket za jedan odabrani Drum Kit.
-        """
-
-        kit = self._find_session_kit(
-            session,
-            kit_index,
-        )
-
-        return {
+            "success": True,
             "kit_index": kit.get(
-                "kit_index"
+                "kit_index",
+                kit_index,
             ),
             "kit_name": kit.get(
                 "kit_name"
@@ -483,40 +187,22 @@
             "record_size": kit.get(
                 "record_size"
             ),
-            "raw_hex": kit.get(
-                "raw_hex"
+            "mapping_count": len(
+                result
             ),
-            "reconstruction": kit.get(
-                "reconstruction",
-                {},
+            "valid_midi_count": (
+                valid_midi_count
             ),
-            "statistics": kit.get(
-                "statistics",
-                {},
+            "confirmed_count": (
+                confirmed_count
             ),
-            "parameters": (
-                self.build_editor_parameter_list(
-                    session,
-                    kit_index,
-                )
+            "probable_count": (
+                probable_count
             ),
-            "midi_mappings": (
-                self.build_editor_midi_mapping_list(
-                    session,
-                    kit_index,
-                )
+            "possible_count": (
+                possible_count
             ),
-            "fields": (
-                self.build_editor_field_list(
-                    session,
-                    kit_index,
-                )
-            ),
-            "change_history": (
-                self.get_editor_change_history(
-                    session
-                )
-            ),
+            "mappings": result,
             "dirty": session.get(
                 "dirty",
                 False,
@@ -533,90 +219,427 @@
             "source_file_modified": False,
         }
 
-    def build_editor_data_package(
+
+    def find_midi_mapping_by_note(
         self,
         session: dict,
-    ) -> dict:
+        kit_index: int,
+        midi_note: int,
+    ) -> list[dict]:
         """
-        #43
+        #45
 
-        Kompletan data paket za GUI editor.
-
-        GUI može koristiti ovaj objekt kao jedini
-        ulazni izvor podataka.
+        Pronalazi sve mapping zapise
+        za određenu MIDI notu.
         """
 
-        validation = (
-            self.validate_editor_session(
-                session
-            )
-        )
-
-        kits = self.build_editor_kit_list(
-            session
-        )
-
-        selected_kit = None
-
-        if kits:
-
-            selected_kit = self.build_editor_selected_kit_data(
-                session,
-                kits[0].get(
-                    "kit_index"
-                ),
+        try:
+            midi_note = int(midi_note)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "midi_note must be an integer."
             )
 
-        return {
-            "editor_version": "#43",
-            "valid": validation.get(
-                "valid",
-                False,
-            ),
-            "kits": kits,
-            "selected_kit": selected_kit,
-            "session_status": (
-                self.get_editor_session_status(
-                    session
-                )
-            ),
-            "validation": validation,
-            "capabilities": {
-                "view_kits": True,
-                "view_parameters": True,
-                "view_midi_mapping": True,
-                "edit_bytes": True,
-                "edit_midi_notes": True,
-                "undo": True,
-                "redo": True,
-                "change_history": True,
-                "write_back": False,
-                "source_file_modification": False,
-            },
-        }
+        if not 0 <= midi_note <= 127:
+            raise ValueError(
+                "midi_note must be between 0 and 127."
+            )
 
-    def select_editor_kit(
+        data = self.build_midi_mapping_editor(
+            session,
+            kit_index,
+        )
+
+        return [
+            item
+            for item in data.get(
+                "mappings",
+                [],
+            )
+            if item.get(
+                "midi_note"
+            ) == midi_note
+        ]
+
+
+    def find_midi_mapping_by_offset(
+        self,
+        session: dict,
+        kit_index: int,
+        relative_offset: int,
+    ) -> dict | None:
+        """
+        #45
+
+        Pronalazi MIDI mapping prema
+        relativnom offsetu.
+        """
+
+        try:
+            relative_offset = int(
+                relative_offset
+            )
+        except (TypeError, ValueError):
+            raise ValueError(
+                "relative_offset must be an integer."
+            )
+
+        data = self.build_midi_mapping_editor(
+            session,
+            kit_index,
+        )
+
+        for item in data.get(
+            "mappings",
+            [],
+        ):
+            if item.get(
+                "offset"
+            ) == relative_offset:
+                return item
+
+        return None
+
+
+    def get_midi_mapping_statistics(
         self,
         session: dict,
         kit_index: int,
     ) -> dict:
         """
-        #43
+        #45
 
-        Vraća podatke za odabrani Drum Kit.
+        Statistika MIDI mapping podataka.
         """
 
-        data = (
-            self.build_editor_selected_kit_data(
+        data = self.build_midi_mapping_editor(
+            session,
+            kit_index,
+        )
+
+        mappings = data.get(
+            "mappings",
+            [],
+        )
+
+        midi_values = []
+
+        for item in mappings:
+
+            value = item.get(
+                "midi_note"
+            )
+
+            if (
+                isinstance(value, int)
+                and 0 <= value <= 127
+            ):
+                midi_values.append(
+                    value
+                )
+
+        unique_midi_values = sorted(
+            set(
+                midi_values
+            )
+        )
+
+        duplicate_midi_values = [
+            value
+            for value in unique_midi_values
+            if midi_values.count(
+                value
+            ) > 1
+        ]
+
+        confidence_scores = []
+
+        for item in mappings:
+
+            score = item.get(
+                "confidence_score",
+                0.0,
+            )
+
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                continue
+
+            confidence_scores.append(
+                score
+            )
+
+        average_confidence = (
+            sum(confidence_scores)
+            / len(confidence_scores)
+            if confidence_scores
+            else 0.0
+        )
+
+        return {
+            "kit_index": kit_index,
+            "mapping_count": len(
+                mappings
+            ),
+            "valid_midi_count": len(
+                midi_values
+            ),
+            "unique_midi_count": len(
+                unique_midi_values
+            ),
+            "duplicate_midi_count": len(
+                duplicate_midi_values
+            ),
+            "duplicate_midi_values": (
+                duplicate_midi_values
+            ),
+            "minimum_midi": (
+                min(midi_values)
+                if midi_values
+                else None
+            ),
+            "maximum_midi": (
+                max(midi_values)
+                if midi_values
+                else None
+            ),
+            "average_confidence": round(
+                average_confidence,
+                2,
+            ),
+            "source_file_modified": False,
+        }
+
+
+    def validate_midi_mapping_editor(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #45
+
+        Validira MIDI mapping podatke
+        prije GUI prikaza.
+        """
+
+        data = self.build_midi_mapping_editor(
+            session,
+            kit_index,
+        )
+
+        mappings = data.get(
+            "mappings",
+            [],
+        )
+
+        errors = []
+        warnings = []
+
+        for item in mappings:
+
+            offset = item.get(
+                "offset"
+            )
+
+            value = item.get(
+                "value"
+            )
+
+            midi_note = item.get(
+                "midi_note"
+            )
+
+            if offset is None:
+                errors.append(
+                    "mapping_without_offset"
+                )
+
+            if value is not None:
+
+                try:
+                    byte_value = int(
+                        value
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    errors.append(
+                        "mapping_with_invalid_byte"
+                    )
+                else:
+
+                    if not 0 <= byte_value <= 255:
+                        errors.append(
+                            "mapping_byte_out_of_range"
+                        )
+
+            if midi_note is not None:
+
+                try:
+                    midi_value = int(
+                        midi_note
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    errors.append(
+                        "mapping_with_invalid_midi"
+                    )
+                else:
+
+                    if not 0 <= midi_value <= 127:
+                        errors.append(
+                            "midi_note_out_of_range"
+                        )
+
+            if not item.get(
+                "midi_valid",
+                False,
+            ):
+                warnings.append(
+                    {
+                        "offset": offset,
+                        "message": (
+                            "MIDI value is not "
+                            "currently confirmed."
+                        ),
+                    }
+                )
+
+        statistics = (
+            self.get_midi_mapping_statistics(
+                session,
+                kit_index,
+            )
+        )
+
+        if statistics.get(
+            "duplicate_midi_count",
+            0,
+        ) > 0:
+
+            warnings.append(
+                {
+                    "message": (
+                        "Duplicate MIDI notes "
+                        "were detected."
+                    ),
+                    "values": statistics.get(
+                        "duplicate_midi_values",
+                        [],
+                    ),
+                }
+            )
+
+        return {
+            "valid": not bool(
+                errors
+            ),
+            "kit_index": kit_index,
+            "mapping_count": len(
+                mappings
+            ),
+            "errors": errors,
+            "warnings": warnings,
+            "statistics": statistics,
+            "source_file_modified": False,
+        }
+
+
+    def build_editor_midi_mapping_package(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #45
+
+        Kompletan GUI paket za
+        MIDI Mapping Editor.
+        """
+
+        editor = (
+            self.build_midi_mapping_editor(
+                session,
+                kit_index,
+            )
+        )
+
+        validation = (
+            self.validate_midi_mapping_editor(
                 session,
                 kit_index,
             )
         )
 
         return {
-            "success": True,
-            "selected_kit": data,
+            "editor_version": "#45",
+            "success": editor.get(
+                "success",
+                False,
+            ),
+            "valid": validation.get(
+                "valid",
+                False,
+            ),
             "kit_index": kit_index,
+            "kit_name": editor.get(
+                "kit_name"
+            ),
+            "record_size": editor.get(
+                "record_size"
+            ),
+            "mappings": editor.get(
+                "mappings",
+                [],
+            ),
+            "mapping_count": editor.get(
+                "mapping_count",
+                0,
+            ),
+            "mapping_statistics": (
+                validation.get(
+                    "statistics",
+                    {},
+                )
+            ),
+            "errors": validation.get(
+                "errors",
+                [],
+            ),
+            "warnings": validation.get(
+                "warnings",
+                [],
+            ),
+            "capabilities": {
+                "view_midi_mapping": True,
+                "find_by_note": True,
+                "find_by_offset": True,
+                "edit_midi_note": True,
+                "undo": True,
+                "redo": True,
+                "validation": True,
+                "write_back": False,
+                "source_file_modification": False,
+            },
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
             "source_file_modified": False,
         }
+```
+
 ```

@@ -1,836 +1,821 @@
-```python
+```python id="73m2kx"
     # ===============================================================
-    # #35 MAPPING FIELD INTERPRETATION
+    # #36 MIDI MAPPING VALIDATION
     # ===============================================================
 
-    def analyze_mapping_field_interpretation(
+    def validate_midi_mapping_candidates(
         self,
     ) -> list[dict]:
         """
-        #35
+        #36
 
-        Pokušava interpretirati mapping fieldove pronađene
-        u #34.
+        Validira MIDI mapping kandidate pronađene
+        kroz #32, #33, #34 i #35.
 
         Cilj:
-        - identificirati moguće MIDI note pozicije
-        - identificirati pomoćne / povezane pozicije
-        - razlikovati MIDI-like vrijednosti od ostalih vrijednosti
-        - koristiti rezultate #32, #33 i #34
-        - izračunati interpretation score
+        - provjeriti da li kandidati zaista izgledaju
+          kao MIDI note vrijednosti
+        - provjeriti kontinuitet i raspon vrijednosti
+        - provjeriti ponašanje kroz sve Drum Kit records
+        - koristiti dodatne cross-record dokaze
+        - izračunati validation score
         - NE mijenjati originalni PCG/SET fajl
         """
 
-        fields = (
-            self.analyze_mapping_fields()
+        records = (
+            self.find_drum_kit_name_records()
         )
 
-        if not fields:
+        if not records:
             return []
 
-        consistency_report = (
-            self.analyze_mapping_consistency()
+        interpretation_report = (
+            self.analyze_mapping_field_interpretation()
         )
 
-        relationship_report = (
-            self.analyze_mapping_relationships()
-        )
-
-        if not consistency_report:
+        if not interpretation_report:
             return []
 
-        consistency_by_offset = {
-            item[
-                "relative_offset"
-            ]: item
-            for item in consistency_report
-        }
-
-        relationship_by_pair = {}
-
-        for relationship in relationship_report:
-
-            offset_a = relationship[
-                "offset_a"
-            ]
-
-            offset_b = relationship[
-                "offset_b"
-            ]
-
-            relationship_by_pair[
-                (
-                    offset_a,
-                    offset_b,
-                )
-            ] = relationship
-
-            relationship_by_pair[
-                (
-                    offset_b,
-                    offset_a,
-                )
-            ] = relationship
-
-        interpretation_report = []
+        validation_report = []
 
         # -----------------------------------------------------------
-        # Analyze every mapping field
+        # Helper: MIDI range
         # -----------------------------------------------------------
 
-        for field in fields:
-
-            offsets = field.get(
-                "offsets",
-                [],
+        def is_valid_midi_note(
+            value,
+        ):
+            return (
+                isinstance(
+                    value,
+                    int,
+                )
+                and 0 <= value <= 127
             )
 
-            if not offsets:
+        # -----------------------------------------------------------
+        # Helper: note range
+        # -----------------------------------------------------------
+
+        def note_range_score(
+            values,
+        ):
+
+            if not values:
+                return 0.0
+
+            valid_values = [
+                value
+                for value in values
+                if is_valid_midi_note(
+                    value
+                )
+            ]
+
+            if not valid_values:
+                return 0.0
+
+            minimum = min(
+                valid_values
+            )
+
+            maximum = max(
+                valid_values
+            )
+
+            value_range = (
+                maximum - minimum
+            )
+
+            if value_range <= 12:
+                return 1.0
+
+            if value_range <= 24:
+                return 0.90
+
+            if value_range <= 36:
+                return 0.80
+
+            if value_range <= 48:
+                return 0.65
+
+            if value_range <= 72:
+                return 0.45
+
+            return 0.25
+
+        # -----------------------------------------------------------
+        # Analyze every interpreted field
+        # -----------------------------------------------------------
+
+        for field in interpretation_report:
+
+            interpretation = field.get(
+                "interpretation"
+            )
+
+            if interpretation not in (
+                "likely_midi_mapping_field",
+                "possible_midi_mapping_field",
+            ):
                 continue
 
-            positions = []
+            midi_mapping = field.get(
+                "midi_mapping"
+            )
 
-            for offset in offsets:
+            if not midi_mapping:
+                continue
 
-                consistency = (
-                    consistency_by_offset.get(
+            offset = midi_mapping.get(
+                "relative_offset"
+            )
+
+            if offset is None:
+                continue
+
+            # -------------------------------------------------------
+            # Extract values directly from records
+            # -------------------------------------------------------
+
+            values = []
+
+            for record in records:
+
+                try:
+                    value = record[
                         offset
-                    )
-                )
-
-                if not consistency:
+                    ]
+                except (
+                    IndexError,
+                    TypeError,
+                ):
                     continue
 
-                unique_values = consistency.get(
-                    "unique_values",
-                    [],
+                values.append(
+                    value
                 )
 
-                midi_values = consistency.get(
-                    "midi_values",
-                    [],
-                )
-
-                midi_ratio = consistency.get(
-                    "midi_ratio",
-                    0.0,
-                )
-
-                consistency_score = consistency.get(
-                    "consistency_score",
-                    0.0,
-                )
-
-                minimum_value = consistency.get(
-                    "minimum_value"
-                )
-
-                maximum_value = consistency.get(
-                    "maximum_value"
-                )
-
-                value_range = consistency.get(
-                    "value_range"
-                )
-
-                # ---------------------------------------------------
-                # MIDI note plausibility
-                # ---------------------------------------------------
-
-                midi_note_score = 0.0
-
-                if midi_ratio >= 1.0:
-                    midi_note_score += 40.0
-
-                elif midi_ratio >= 0.75:
-                    midi_note_score += 30.0
-
-                elif midi_ratio >= 0.50:
-                    midi_note_score += 15.0
-
-                # Typical MIDI note range
-                if (
-                    minimum_value is not None
-                    and maximum_value is not None
-                ):
-
-                    if (
-                        0
-                        <= minimum_value
-                        <= 127
-                        and
-                        0
-                        <= maximum_value
-                        <= 127
-                    ):
-                        midi_note_score += 25.0
-
-                    if (
-                        24
-                        <= minimum_value
-                        <= 108
-                        and
-                        24
-                        <= maximum_value
-                        <= 108
-                    ):
-                        midi_note_score += 15.0
-
-                # Compact note range is useful evidence
-                if value_range is not None:
-
-                    if value_range <= 12:
-                        midi_note_score += 15.0
-
-                    elif value_range <= 24:
-                        midi_note_score += 10.0
-
-                    elif value_range <= 36:
-                        midi_note_score += 5.0
-
-                midi_note_score = min(
-                    midi_note_score,
-                    100.0,
-                )
-
-                # ---------------------------------------------------
-                # Constant-field detection
-                # ---------------------------------------------------
-
-                if len(unique_values) == 1:
-
-                    field_type = (
-                        "constant_parameter"
-                    )
-
-                    interpretation_score = (
-                        consistency_score
-                    )
-
-                    confidence = (
-                        "low"
-                    )
-
-                # ---------------------------------------------------
-                # MIDI note candidate
-                # ---------------------------------------------------
-
-                elif midi_note_score >= 75.0:
-
-                    field_type = (
-                        "midi_note_candidate"
-                    )
-
-                    interpretation_score = (
-                        midi_note_score
-                    )
-
-                    confidence = (
-                        "high"
-                        if midi_note_score >= 90.0
-                        else "medium"
-                    )
-
-                elif midi_note_score >= 55.0:
-
-                    field_type = (
-                        "possible_midi_note"
-                    )
-
-                    interpretation_score = (
-                        midi_note_score
-                    )
-
-                    confidence = (
-                        "medium"
-                    )
-
-                else:
-
-                    field_type = (
-                        "unknown_mapping_parameter"
-                    )
-
-                    interpretation_score = (
-                        consistency_score
-                    )
-
-                    confidence = (
-                        "low"
-                    )
-
-                # ---------------------------------------------------
-                # MIDI note names
-                # ---------------------------------------------------
-
-                note_names = []
-
-                for value in midi_values:
-
-                    try:
-                        note_names.append(
-                            midi_to_note(
-                                value
-                            )
-                        )
-                    except Exception:
-                        note_names.append(
-                            None
-                        )
-
-                # ---------------------------------------------------
-                # Related positions
-                # ---------------------------------------------------
-
-                related_positions = []
-
-                for other_offset in offsets:
-
-                    if (
-                        other_offset
-                        == offset
-                    ):
-                        continue
-
-                    relationship = (
-                        relationship_by_pair.get(
-                            (
-                                offset,
-                                other_offset,
-                            )
-                        )
-                    )
-
-                    if not relationship:
-                        continue
-
-                    related_positions.append(
-                        {
-                            "offset": (
-                                other_offset
-                            ),
-                            "relationship_score": (
-                                relationship[
-                                    "relationship_score"
-                                ]
-                            ),
-                            "co_change_ratio": (
-                                relationship[
-                                    "co_change_ratio"
-                                ]
-                            ),
-                            "correlation": (
-                                relationship[
-                                    "correlation"
-                                ]
-                            ),
-                            "constant_delta": (
-                                relationship[
-                                    "constant_delta"
-                                ]
-                            ),
-                            "classification": (
-                                relationship[
-                                    "classification"
-                                ]
-                            ),
-                        }
-                    )
-
-                related_positions.sort(
-                    key=lambda item: (
-                        item[
-                            "relationship_score"
-                        ]
-                    ),
-                    reverse=True,
-                )
-
-                positions.append(
-                    {
-                        "offset": offset,
-                        "unique_values": (
-                            unique_values
-                        ),
-                        "hex_values": (
-                            consistency.get(
-                                "hex_values",
-                                [],
-                            )
-                        ),
-                        "midi_values": (
-                            midi_values
-                        ),
-                        "midi_note_names": (
-                            note_names
-                        ),
-                        "midi_ratio": (
-                            midi_ratio
-                        ),
-                        "minimum_value": (
-                            minimum_value
-                        ),
-                        "maximum_value": (
-                            maximum_value
-                        ),
-                        "value_range": (
-                            value_range
-                        ),
-                        "consistency_score": (
-                            consistency_score
-                        ),
-                        "midi_note_score": round(
-                            midi_note_score,
-                            2,
-                        ),
-                        "field_type": (
-                            field_type
-                        ),
-                        "confidence": (
-                            confidence
-                        ),
-                        "related_positions": (
-                            related_positions
-                        ),
-                    }
-                )
-
-            if not positions:
+            if not values:
                 continue
 
             # -------------------------------------------------------
-            # Find best MIDI note position
+            # Basic value analysis
             # -------------------------------------------------------
 
-            midi_candidates = [
-                item
-                for item in positions
-                if item[
-                    "field_type"
-                ]
-                in (
-                    "midi_note_candidate",
-                    "possible_midi_note",
+            record_count = len(
+                values
+            )
+
+            unique_values = sorted(
+                set(values)
+            )
+
+            unique_count = len(
+                unique_values
+            )
+
+            valid_midi_values = [
+                value
+                for value in unique_values
+                if is_valid_midi_note(
+                    value
                 )
             ]
 
-            midi_candidates.sort(
-                key=lambda item: (
-                    item[
-                        "midi_note_score"
-                    ],
-                    item[
-                        "midi_ratio"
-                    ],
-                    item[
-                        "consistency_score"
-                    ],
-                ),
-                reverse=True,
-            )
+            invalid_values = [
+                value
+                for value in unique_values
+                if not is_valid_midi_note(
+                    value
+                )
+            ]
 
-            primary_midi_position = (
-                midi_candidates[0]
-                if midi_candidates
-                else None
+            midi_ratio = (
+                len(
+                    valid_midi_values
+                )
+                / unique_count
+                if unique_count
+                else 0.0
             )
 
             # -------------------------------------------------------
-            # Field-level MIDI score
+            # Sequential change behavior
             # -------------------------------------------------------
 
-            if primary_midi_position:
+            transitions = max(
+                record_count - 1,
+                0,
+            )
 
-                field_midi_score = (
-                    primary_midi_position[
-                        "midi_note_score"
-                    ]
+            changed_count = 0
+            valid_transition_count = 0
+
+            for i in range(
+                1,
+                record_count,
+            ):
+
+                previous = values[
+                    i - 1
+                ]
+
+                current = values[
+                    i
+                ]
+
+                if previous != current:
+                    changed_count += 1
+
+                if (
+                    is_valid_midi_note(
+                        previous
+                    )
+                    and
+                    is_valid_midi_note(
+                        current
+                    )
+                ):
+                    valid_transition_count += 1
+
+            change_ratio = (
+                changed_count
+                / transitions
+                if transitions
+                else 0.0
+            )
+
+            valid_transition_ratio = (
+                valid_transition_count
+                / transitions
+                if transitions
+                else 1.0
+            )
+
+            # -------------------------------------------------------
+            # Range
+            # -------------------------------------------------------
+
+            if valid_midi_values:
+
+                minimum_value = min(
+                    valid_midi_values
+                )
+
+                maximum_value = max(
+                    valid_midi_values
+                )
+
+                value_range = (
+                    maximum_value
+                    - minimum_value
                 )
 
             else:
 
-                field_midi_score = (
-                    field.get(
-                        "group_midi_ratio",
-                        0.0,
+                minimum_value = None
+                maximum_value = None
+                value_range = None
+
+            compact_range_score = (
+                note_range_score(
+                    valid_midi_values
+                )
+            )
+
+            # -------------------------------------------------------
+            # Duplicate / frequency analysis
+            # -------------------------------------------------------
+
+            frequency = {}
+
+            for value in values:
+
+                frequency[value] = (
+                    frequency.get(
+                        value,
+                        0,
                     )
-                    * 100.0
+                    + 1
                 )
 
-            # -------------------------------------------------------
-            # Field relationship evidence
-            # -------------------------------------------------------
-
-            group_relationship_score = field.get(
-                "group_relationship_score",
-                0.0,
+            max_frequency = (
+                max(
+                    frequency.values()
+                )
+                if frequency
+                else 0
             )
 
-            group_consistency_score = field.get(
-                "group_consistency_score",
-                0.0,
-            )
-
-            contiguous_ratio = field.get(
-                "contiguous_ratio",
-                0.0,
+            dominant_ratio = (
+                max_frequency
+                / record_count
+                if record_count
+                else 0.0
             )
 
             # -------------------------------------------------------
-            # Determine likely field role
+            # Detect ascending / descending note movement
             # -------------------------------------------------------
 
-            role_evidence = []
+            ascending_count = 0
+            descending_count = 0
+            nonzero_transitions = 0
 
-            if primary_midi_position:
+            for i in range(
+                1,
+                record_count,
+            ):
 
-                role_evidence.append(
-                    "field_contains_midi_note_candidate"
+                delta = (
+                    values[i]
+                    - values[i - 1]
                 )
 
-            if group_relationship_score >= 80.0:
+                if delta > 0:
 
-                role_evidence.append(
-                    "field_has_strong_internal_relationships"
-                )
+                    ascending_count += 1
+                    nonzero_transitions += 1
 
-            if group_consistency_score >= 80.0:
+                elif delta < 0:
 
-                role_evidence.append(
-                    "field_positions_are_highly_consistent"
-                )
+                    descending_count += 1
+                    nonzero_transitions += 1
 
-            if contiguous_ratio >= 0.75:
+            ascending_ratio = (
+                ascending_count
+                / nonzero_transitions
+                if nonzero_transitions
+                else 0.0
+            )
 
-                role_evidence.append(
-                    "field_offsets_are_mostly_contiguous"
-                )
-
-            if len(
-                positions
-            ) >= 2:
-
-                role_evidence.append(
-                    "field_contains_multiple_positions"
-                )
+            descending_ratio = (
+                descending_count
+                / nonzero_transitions
+                if nonzero_transitions
+                else 0.0
+            )
 
             # -------------------------------------------------------
-            # Determine interpretation
+            # MIDI note name conversion
             # -------------------------------------------------------
+
+            midi_note_names = []
+
+            for value in valid_midi_values:
+
+                try:
+                    midi_note_names.append(
+                        midi_to_note(
+                            value
+                        )
+                    )
+                except Exception:
+                    midi_note_names.append(
+                        None
+                    )
+
+            # -------------------------------------------------------
+            # Field-level scores
+            # -------------------------------------------------------
+
+            midi_validity_score = (
+                midi_ratio
+                * 100.0
+            )
+
+            transition_score = (
+                valid_transition_ratio
+                * 100.0
+            )
+
+            # A MIDI mapping normally changes between kits,
+            # but does not need to change constantly.
+            behavior_score = 0.0
 
             if (
-                primary_midi_position
-                and field_midi_score >= 85.0
-                and group_relationship_score >= 70.0
+                0.05
+                <= change_ratio
+                <= 0.95
             ):
+                behavior_score = 100.0
 
-                interpretation = (
-                    "likely_midi_mapping_field"
-                )
-
-            elif (
-                primary_midi_position
-                and field_midi_score >= 70.0
-            ):
-
-                interpretation = (
-                    "possible_midi_mapping_field"
-                )
-
-            elif (
-                group_relationship_score >= 80.0
-                and len(positions) >= 2
-            ):
-
-                interpretation = (
-                    "related_parameter_group"
-                )
-
-            elif (
-                len(positions) == 1
-                and positions[0][
-                    "field_type"
-                ]
-                == "constant_parameter"
-            ):
-
-                interpretation = (
-                    "constant_parameter_field"
-                )
+            elif change_ratio == 0.0:
+                behavior_score = 55.0
 
             else:
+                behavior_score = 70.0
 
-                interpretation = (
-                    "unknown_mapping_field"
+            # -------------------------------------------------------
+            # Combined validation score
+            # -------------------------------------------------------
+
+            validation_score = (
+                midi_validity_score
+                * 0.35
+                + compact_range_score
+                * 100.0
+                * 0.20
+                + transition_score
+                * 0.15
+                + behavior_score
+                * 0.15
+                + field.get(
+                    "field_midi_score",
+                    0.0,
                 )
-
-            # -------------------------------------------------------
-            # Final interpretation score
-            # -------------------------------------------------------
-
-            interpretation_score = (
-                field_midi_score * 0.40
-                + group_relationship_score * 0.30
-                + group_consistency_score * 0.20
-                + contiguous_ratio * 100.0 * 0.10
+                * 0.10
+                + field.get(
+                    "group_relationship_score",
+                    0.0,
+                )
+                * 0.05
             )
 
-            interpretation_score = min(
-                interpretation_score,
+            validation_score = min(
+                validation_score,
                 100.0,
             )
 
             # -------------------------------------------------------
-            # Confidence
+            # Validation evidence
+            # -------------------------------------------------------
+
+            evidence = []
+
+            if midi_ratio >= 1.0:
+
+                evidence.append(
+                    "all_unique_values_are_valid_midi_notes"
+                )
+
+            elif midi_ratio >= 0.90:
+
+                evidence.append(
+                    "almost_all_unique_values_are_valid_midi_notes"
+                )
+
+            elif midi_ratio >= 0.75:
+
+                evidence.append(
+                    "most_unique_values_are_valid_midi_notes"
+                )
+
+            if compact_range_score >= 0.90:
+
+                evidence.append(
+                    "midi_values_have_compact_note_range"
+                )
+
+            elif compact_range_score >= 0.70:
+
+                evidence.append(
+                    "midi_values_have_reasonable_note_range"
+                )
+
+            if valid_transition_ratio >= 0.90:
+
+                evidence.append(
+                    "transitions_are_midi_valid"
+                )
+
+            if (
+                change_ratio > 0.0
+                and change_ratio < 1.0
+            ):
+
+                evidence.append(
+                    "mapping_value_changes_between_some_kits"
+                )
+
+            if (
+                ascending_ratio >= 0.75
+                or descending_ratio >= 0.75
+            ):
+
+                evidence.append(
+                    "mapping_values_show_directional_change_pattern"
+                )
+
+            if (
+                field.get(
+                    "group_relationship_score",
+                    0.0,
+                )
+                >= 80.0
+            ):
+
+                evidence.append(
+                    "field_has_strong_relationship_evidence"
+                )
+
+            # -------------------------------------------------------
+            # Detect suspicious conditions
+            # -------------------------------------------------------
+
+            warnings = []
+
+            if invalid_values:
+
+                warnings.append(
+                    "contains_values_outside_midi_range"
+                )
+
+            if unique_count == 1:
+
+                warnings.append(
+                    "value_is_constant_across_all_records"
+                )
+
+            if (
+                dominant_ratio >= 0.95
+                and unique_count > 1
+            ):
+
+                warnings.append(
+                    "one_value_dominates_the_mapping"
+                )
+
+            if (
+                value_range is not None
+                and value_range > 72
+            ):
+
+                warnings.append(
+                    "mapping_range_is_wide"
+                )
+
+            # -------------------------------------------------------
+            # Final validation classification
             # -------------------------------------------------------
 
             if (
-                interpretation_score >= 85.0
-                and interpretation
-                == "likely_midi_mapping_field"
+                validation_score >= 85.0
+                and midi_ratio >= 0.90
+                and not invalid_values
             ):
 
-                field_confidence = (
+                validation = (
+                    "validated_midi_mapping"
+                )
+
+                confidence = (
                     "high"
                 )
 
-            elif interpretation_score >= 70.0:
+            elif (
+                validation_score >= 70.0
+                and midi_ratio >= 0.75
+            ):
 
-                field_confidence = (
+                validation = (
+                    "probable_midi_mapping"
+                )
+
+                confidence = (
                     "medium"
+                )
+
+            elif (
+                validation_score >= 55.0
+                and midi_ratio >= 0.50
+            ):
+
+                validation = (
+                    "possible_midi_mapping"
+                )
+
+                confidence = (
+                    "low"
                 )
 
             else:
 
-                field_confidence = (
-                    "low"
+                validation = (
+                    "unvalidated_mapping"
                 )
 
-            # -------------------------------------------------------
-            # MIDI mapping summary
-            # -------------------------------------------------------
-
-            midi_mapping = None
-
-            if primary_midi_position:
-
-                midi_mapping = {
-                    "relative_offset": (
-                        primary_midi_position[
-                            "offset"
-                        ]
-                    ),
-                    "field_type": (
-                        primary_midi_position[
-                            "field_type"
-                        ]
-                    ),
-                    "midi_values": (
-                        primary_midi_position[
-                            "midi_values"
-                        ]
-                    ),
-                    "midi_note_names": (
-                        primary_midi_position[
-                            "midi_note_names"
-                        ]
-                    ),
-                    "minimum_value": (
-                        primary_midi_position[
-                            "minimum_value"
-                        ]
-                    ),
-                    "maximum_value": (
-                        primary_midi_position[
-                            "maximum_value"
-                        ]
-                    ),
-                    "value_range": (
-                        primary_midi_position[
-                            "value_range"
-                        ]
-                    ),
-                    "midi_note_score": (
-                        primary_midi_position[
-                            "midi_note_score"
-                        ]
-                    ),
-                    "confidence": (
-                        primary_midi_position[
-                            "confidence"
-                        ]
-                    ),
-                }
+                confidence = (
+                    "low"
+                )
 
             # -------------------------------------------------------
             # Final result
             # -------------------------------------------------------
 
-            interpretation_report.append(
+            validation_report.append(
                 {
                     "field_id": field.get(
                         "field_id"
                     ),
-                    "rank": field.get(
-                        "rank"
+                    "relative_offset": offset,
+                    "offsets": field.get(
+                        "offsets",
+                        [],
                     ),
-                    "offsets": offsets,
-                    "start_offset": field.get(
-                        "start_offset"
+                    "record_count": record_count,
+                    "unique_value_count": (
+                        unique_count
                     ),
-                    "end_offset": field.get(
-                        "end_offset"
+                    "unique_values": (
+                        unique_values
                     ),
-                    "field_size": len(
-                        offsets
+                    "hex_values": [
+                        f"{value:02X}"
+                        for value
+                        in unique_values
+                    ],
+                    "valid_midi_values": (
+                        valid_midi_values
                     ),
-                    "field_score": field.get(
-                        "group_score",
+                    "invalid_values": (
+                        invalid_values
+                    ),
+                    "midi_note_names": (
+                        midi_note_names
+                    ),
+                    "minimum_value": (
+                        minimum_value
+                    ),
+                    "maximum_value": (
+                        maximum_value
+                    ),
+                    "value_range": (
+                        value_range
+                    ),
+                    "midi_ratio": round(
+                        midi_ratio,
+                        4,
+                    ),
+                    "change_ratio": round(
+                        change_ratio,
+                        4,
+                    ),
+                    "valid_transition_ratio": round(
+                        valid_transition_ratio,
+                        4,
+                    ),
+                    "dominant_ratio": round(
+                        dominant_ratio,
+                        4,
+                    ),
+                    "ascending_ratio": round(
+                        ascending_ratio,
+                        4,
+                    ),
+                    "descending_ratio": round(
+                        descending_ratio,
+                        4,
+                    ),
+                    "compact_range_score": round(
+                        compact_range_score,
+                        4,
+                    ),
+                    "midi_validity_score": round(
+                        midi_validity_score,
+                        2,
+                    ),
+                    "behavior_score": round(
+                        behavior_score,
+                        2,
+                    ),
+                    "field_midi_score": field.get(
+                        "field_midi_score",
                         0.0,
                     ),
-                    "group_consistency_score": (
-                        group_consistency_score
+                    "group_relationship_score": field.get(
+                        "group_relationship_score",
+                        0.0,
                     ),
-                    "group_relationship_score": (
-                        group_relationship_score
-                    ),
-                    "contiguous_ratio": (
-                        contiguous_ratio
-                    ),
-                    "field_midi_score": round(
-                        field_midi_score,
+                    "validation_score": round(
+                        validation_score,
                         2,
                     ),
-                    "interpretation_score": round(
-                        interpretation_score,
-                        2,
-                    ),
-                    "interpretation": (
-                        interpretation
+                    "validation": (
+                        validation
                     ),
                     "confidence": (
-                        field_confidence
+                        confidence
                     ),
-                    "midi_mapping": (
-                        midi_mapping
-                    ),
-                    "positions": positions,
-                    "evidence": role_evidence,
+                    "evidence": evidence,
+                    "warnings": warnings,
                 }
             )
 
         # -----------------------------------------------------------
-        # Sort strongest interpretations first
+        # Sort strongest validations first
         # -----------------------------------------------------------
 
-        interpretation_report.sort(
+        validation_report.sort(
             key=lambda item: (
                 item[
-                    "interpretation_score"
+                    "validation_score"
                 ],
                 item[
-                    "field_midi_score"
+                    "midi_ratio"
                 ],
                 item[
-                    "group_relationship_score"
+                    "compact_range_score"
+                ],
+                item[
+                    "valid_transition_ratio"
                 ],
             ),
             reverse=True,
         )
 
         # -----------------------------------------------------------
-        # Re-number ranks
+        # Add rank
         # -----------------------------------------------------------
 
         for rank, item in enumerate(
-            interpretation_report,
+            validation_report,
             start=1,
         ):
             item["rank"] = rank
 
-        return interpretation_report
+        return validation_report
 
-    def find_likely_midi_mapping_fields(
+    def find_validated_midi_mappings(
         self,
     ) -> list[dict]:
         """
-        Returns fields interpreted as likely
-        MIDI mapping fields.
+        Returns only highly validated MIDI mappings.
         """
 
         report = (
-            self.analyze_mapping_field_interpretation()
+            self.validate_midi_mapping_candidates()
         )
 
         return [
             item
             for item in report
             if item[
-                "interpretation"
+                "validation"
             ]
-            == "likely_midi_mapping_field"
+            == "validated_midi_mapping"
         ]
 
-    def find_possible_midi_mapping_fields(
+    def find_probable_midi_mappings(
         self,
     ) -> list[dict]:
         """
-        Returns likely and possible MIDI
-        mapping fields.
+        Returns validated and probable MIDI mappings.
         """
 
         report = (
-            self.analyze_mapping_field_interpretation()
+            self.validate_midi_mapping_candidates()
         )
 
         return [
             item
             for item in report
             if item[
-                "interpretation"
+                "validation"
             ]
             in (
-                "likely_midi_mapping_field",
-                "possible_midi_mapping_field",
+                "validated_midi_mapping",
+                "probable_midi_mapping",
             )
         ]
 
-    def build_mapping_interpretation_report(
+    def build_midi_validation_report(
         self,
     ) -> dict:
         """
-        Complete #35 report.
+        Complete #36 MIDI validation report.
         """
 
         report = (
-            self.analyze_mapping_field_interpretation()
+            self.validate_midi_mapping_candidates()
         )
 
-        likely_midi_fields = [
+        validated = [
             item
             for item in report
             if item[
-                "interpretation"
+                "validation"
             ]
-            == "likely_midi_mapping_field"
+            == "validated_midi_mapping"
         ]
 
-        possible_midi_fields = [
+        probable = [
             item
             for item in report
             if item[
-                "interpretation"
+                "validation"
             ]
-            == "possible_midi_mapping_field"
+            == "probable_midi_mapping"
         ]
 
-        related_parameter_groups = [
+        possible = [
             item
             for item in report
             if item[
-                "interpretation"
+                "validation"
             ]
-            == "related_parameter_group"
+            == "possible_midi_mapping"
         ]
 
         return {
@@ -840,18 +825,18 @@
             "record_size": (
                 self.DRUM_KIT_RECORD_SIZE
             ),
-            "fields_analyzed": len(
+            "candidates_validated": len(
                 report
             ),
-            "likely_midi_mapping_fields": (
-                likely_midi_fields
+            "validated_midi_mappings": (
+                validated
             ),
-            "possible_midi_mapping_fields": (
-                possible_midi_fields
+            "probable_midi_mappings": (
+                probable
             ),
-            "related_parameter_groups": (
-                related_parameter_groups
+            "possible_midi_mappings": (
+                possible
             ),
-            "all_interpretations": report,
+            "all_validations": report,
         }
 ```

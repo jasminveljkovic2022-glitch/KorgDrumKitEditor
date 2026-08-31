@@ -668,4 +668,619 @@
             ),
             "source_file_modified": False,
         }
+    # ===============================================================
+    # #49 DRUM KIT FIELD EDITOR
+    # ===============================================================
 
+    def build_field_editor(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #49
+
+        Priprema kompletan Field Editor prikaz
+        za odabrani Drum Kit.
+
+        Ne mijenja originalni SET/PCG fajl.
+        """
+
+        if not isinstance(session, dict):
+            raise TypeError(
+                "session must be a dictionary."
+            )
+
+        kit = self._find_session_kit(
+            session,
+            kit_index,
+        )
+
+        fields = kit.get(
+            "fields",
+            [],
+        )
+
+        result = []
+
+        for field in fields:
+
+            offsets = list(
+                field.get(
+                    "offsets",
+                    [],
+                )
+            )
+
+            parameters = field.get(
+                "parameters",
+                [],
+            )
+
+            result.append(
+                {
+                    "kit_index": kit_index,
+                    "field_id": field.get(
+                        "field_id"
+                    ),
+                    "offsets": offsets,
+                    "start_offset": field.get(
+                        "start_offset"
+                    ),
+                    "end_offset": field.get(
+                        "end_offset"
+                    ),
+                    "field_size": field.get(
+                        "field_size"
+                    ),
+                    "classification": field.get(
+                        "classification"
+                    ),
+                    "score": field.get(
+                        "score",
+                        0.0,
+                    ),
+                    "parameter_count": len(
+                        parameters
+                    ),
+                    "editable": True,
+                    "source_file_modified": False,
+                }
+            )
+
+        return {
+            "success": True,
+            "kit_index": kit.get(
+                "kit_index",
+                kit_index,
+            ),
+            "kit_name": kit.get(
+                "kit_name"
+            ),
+            "record_size": kit.get(
+                "record_size"
+            ),
+            "field_count": len(
+                result
+            ),
+            "fields": result,
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
+            "write_back": False,
+            "source_file_modified": False,
+        }
+
+
+    def get_field_editor_field(
+        self,
+        session: dict,
+        kit_index: int,
+        field_id,
+    ) -> dict | None:
+        """
+        #49
+
+        Pronalazi jedan Field prema field_id.
+        """
+
+        data = self.build_field_editor(
+            session,
+            kit_index,
+        )
+
+        for field in data.get(
+            "fields",
+            [],
+        ):
+            if field.get(
+                "field_id"
+            ) == field_id:
+                return field
+
+        return None
+
+
+    def get_field_editor_parameters(
+        self,
+        session: dict,
+        kit_index: int,
+        field_id,
+    ) -> list[dict]:
+        """
+        #49
+
+        Vraća parametre pripadajućeg fielda.
+        """
+
+        kit = self._find_session_kit(
+            session,
+            kit_index,
+        )
+
+        for field in kit.get(
+            "fields",
+            [],
+        ):
+
+            if field.get(
+                "field_id"
+            ) != field_id:
+                continue
+
+            parameters = field.get(
+                "parameters",
+                [],
+            )
+
+            result = []
+
+            for parameter in parameters:
+
+                result.append(
+                    {
+                        "offset": parameter.get(
+                            "offset"
+                        ),
+                        "hex_offset": parameter.get(
+                            "hex_offset"
+                        ),
+                        "value": parameter.get(
+                            "value"
+                        ),
+                        "hex": parameter.get(
+                            "hex"
+                        ),
+                        "parameter_type": parameter.get(
+                            "parameter_type",
+                            "unknown",
+                        ),
+                        "classification": parameter.get(
+                            "classification"
+                        ),
+                        "confidence": parameter.get(
+                            "confidence"
+                        ),
+                        "confidence_score": parameter.get(
+                            "confidence_score",
+                            0.0,
+                        ),
+                        "midi_note": parameter.get(
+                            "midi_note"
+                        ),
+                        "midi_note_name": parameter.get(
+                            "midi_note_name"
+                        ),
+                        "editable": True,
+                    }
+                )
+
+            return result
+
+        return []
+
+
+    def edit_field_parameter(
+        self,
+        session: dict,
+        kit_index: int,
+        field_id,
+        relative_offset: int,
+        value: int,
+    ) -> dict:
+        """
+        #49
+
+        Sigurno uređivanje jednog byte parametra
+        unutar odabranog fielda.
+
+        Koristi postojeći #42/#47 editing layer.
+        """
+
+        field = self.get_field_editor_field(
+            session,
+            kit_index,
+            field_id,
+        )
+
+        if field is None:
+            return {
+                "success": False,
+                "changed": False,
+                "error": "field_not_found",
+                "kit_index": kit_index,
+                "field_id": field_id,
+                "source_file_modified": False,
+            }
+
+        try:
+            relative_offset = int(
+                relative_offset
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return {
+                "success": False,
+                "changed": False,
+                "error": "invalid_offset",
+                "kit_index": kit_index,
+                "field_id": field_id,
+                "source_file_modified": False,
+            }
+
+        try:
+            value = int(
+                value
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return {
+                "success": False,
+                "changed": False,
+                "error": "invalid_value",
+                "kit_index": kit_index,
+                "field_id": field_id,
+                "source_file_modified": False,
+            }
+
+        if not 0 <= value <= 255:
+            return {
+                "success": False,
+                "changed": False,
+                "error": "value_out_of_range",
+                "kit_index": kit_index,
+                "field_id": field_id,
+                "source_file_modified": False,
+            }
+
+        field_offsets = field.get(
+            "offsets",
+            [],
+        )
+
+        if field_offsets:
+            try:
+                field_offsets_int = [
+                    int(offset)
+                    for offset in field_offsets
+                ]
+            except (
+                TypeError,
+                ValueError,
+            ):
+                field_offsets_int = []
+
+            if field_offsets_int:
+                if relative_offset not in field_offsets_int:
+                    return {
+                        "success": False,
+                        "changed": False,
+                        "error": "offset_not_in_field",
+                        "kit_index": kit_index,
+                        "field_id": field_id,
+                        "relative_offset": relative_offset,
+                        "source_file_modified": False,
+                    }
+
+        result = self.edit_session_byte(
+            session=session,
+            kit_index=kit_index,
+            relative_offset=relative_offset,
+            value=value,
+        )
+
+        return {
+            "success": result.get(
+                "success",
+                False,
+            ),
+            "changed": result.get(
+                "changed",
+                False,
+            ),
+            "kit_index": kit_index,
+            "field_id": field_id,
+            "relative_offset": relative_offset,
+            "value": value,
+            "change": result.get(
+                "change"
+            ),
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
+            "write_back": False,
+            "source_file_modified": False,
+        }
+
+
+    def validate_field_editor(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #49
+
+        Validira Field Editor strukturu.
+        """
+
+        data = self.build_field_editor(
+            session,
+            kit_index,
+        )
+
+        fields = data.get(
+            "fields",
+            [],
+        )
+
+        errors = []
+        warnings = []
+
+        field_ids = set()
+
+        for field in fields:
+
+            field_id = field.get(
+                "field_id"
+            )
+
+            if field_id in field_ids:
+                errors.append(
+                    {
+                        "field_id": field_id,
+                        "error": "duplicate_field_id",
+                    }
+                )
+            else:
+                field_ids.add(
+                    field_id
+                )
+
+            start_offset = field.get(
+                "start_offset"
+            )
+
+            end_offset = field.get(
+                "end_offset"
+            )
+
+            field_size = field.get(
+                "field_size"
+            )
+
+            if (
+                start_offset is not None
+                and end_offset is not None
+            ):
+
+                try:
+                    start_offset = int(
+                        start_offset
+                    )
+
+                    end_offset = int(
+                        end_offset
+                    )
+
+                    if end_offset < start_offset:
+                        errors.append(
+                            {
+                                "field_id": field_id,
+                                "error": (
+                                    "invalid_field_range"
+                                ),
+                            }
+                        )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    errors.append(
+                        {
+                            "field_id": field_id,
+                            "error": (
+                                "invalid_field_offsets"
+                            ),
+                        }
+                    )
+
+            if field_size is not None:
+
+                try:
+                    field_size = int(
+                        field_size
+                    )
+
+                    if field_size < 0:
+                        errors.append(
+                            {
+                                "field_id": field_id,
+                                "error": (
+                                    "negative_field_size"
+                                ),
+                            }
+                        )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    errors.append(
+                        {
+                            "field_id": field_id,
+                            "error": (
+                                "invalid_field_size"
+                            ),
+                        }
+                    )
+
+            offsets = field.get(
+                "offsets",
+                [],
+            )
+
+            if not isinstance(
+                offsets,
+                list,
+            ):
+                errors.append(
+                    {
+                        "field_id": field_id,
+                        "error": (
+                            "invalid_offsets_list"
+                        ),
+                    }
+                )
+
+            if not field.get(
+                "classification"
+            ):
+                warnings.append(
+                    {
+                        "field_id": field_id,
+                        "warning": (
+                            "missing_classification"
+                        ),
+                    }
+                )
+
+        return {
+            "valid": not bool(
+                errors
+            ),
+            "kit_index": kit_index,
+            "field_count": len(
+                fields
+            ),
+            "errors": errors,
+            "warnings": warnings,
+            "source_file_modified": False,
+        }
+
+
+    def build_editor_field_package(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #49
+
+        Kompletan GUI paket za
+        Drum Kit Field Editor.
+        """
+
+        editor = self.build_field_editor(
+            session,
+            kit_index,
+        )
+
+        validation = (
+            self.validate_field_editor(
+                session,
+                kit_index,
+            )
+        )
+
+        return {
+            "editor_version": "#49",
+            "success": editor.get(
+                "success",
+                False,
+            ),
+            "valid": validation.get(
+                "valid",
+                False,
+            ),
+            "kit_index": kit_index,
+            "kit_name": editor.get(
+                "kit_name"
+            ),
+            "record_size": editor.get(
+                "record_size"
+            ),
+            "field_count": editor.get(
+                "field_count",
+                0,
+            ),
+            "fields": editor.get(
+                "fields",
+                [],
+            ),
+            "errors": validation.get(
+                "errors",
+                [],
+            ),
+            "warnings": validation.get(
+                "warnings",
+                [],
+            ),
+            "capabilities": {
+                "view_fields": True,
+                "view_field_parameters": True,
+                "edit_field_parameters": True,
+                "validate_fields": True,
+                "undo": True,
+                "redo": True,
+                "write_back": False,
+                "source_file_modification": False,
+            },
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
+            "write_back": False,
+            "source_file_modified": False,
+        }

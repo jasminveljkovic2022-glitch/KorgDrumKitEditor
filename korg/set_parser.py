@@ -1,48 +1,25 @@
-```python
+```python id="k9x4pm"
     # ===============================================================
-    # #42 UNDO / REDO + CHANGE HISTORY
+    # #43 DRUM KIT EDITOR DATA INTERFACE
     # ===============================================================
 
-    def create_editor_session(
-        self,
-    ) -> dict:
-        """
-        #42
-
-        Kreira novu editor sesiju.
-
-        Sve promjene postoje samo u memoriji.
-        Originalni PCG/SET fajl se NE mijenja.
-        """
-
-        import copy
-
-        model = (
-            self.create_editable_drum_kit_model()
-        )
-
-        return {
-            "session_version": "#42",
-            "model": model,
-            "history": [],
-            "redo_stack": [],
-            "change_count": 0,
-            "undo_available": False,
-            "redo_available": False,
-            "dirty": False,
-            "write_back": False,
-            "source_file_modified": False,
-        }
-
-    def _find_session_kit(
+    def build_editor_kit_list(
         self,
         session: dict,
-        kit_index: int,
-    ) -> dict:
+    ) -> list[dict]:
         """
-        Internal helper.
+        #43
 
-        Pronalazi Drum Kit unutar editor sesije.
+        Priprema jednostavan spisak Drum Kitova za GUI.
+
+        Svaki element sadrži:
+        - kit index
+        - naziv
+        - record size
+        - confidence
+        - MIDI mapping count
+        - field count
+        - change status
         """
 
         if not isinstance(
@@ -53,36 +30,100 @@
                 "session must be a dictionary."
             )
 
-        kits = session.get(
+        model = session.get(
             "model",
             {},
-        ).get(
+        )
+
+        kits = model.get(
             "kits",
             [],
         )
 
+        result = []
+
         for kit in kits:
 
-            if kit.get(
-                "kit_index"
-            ) == kit_index:
+            mapping = kit.get(
+                "mapping",
+                {},
+            )
 
-                return kit
+            reconstruction = kit.get(
+                "reconstruction",
+                {},
+            )
 
-        raise IndexError(
-            f"Drum Kit {kit_index} was not found."
-        )
+            statistics = kit.get(
+                "statistics",
+                {},
+            )
 
-    def _find_session_parameter(
+            result.append(
+                {
+                    "kit_index": kit.get(
+                        "kit_index"
+                    ),
+                    "kit_name": kit.get(
+                        "kit_name"
+                    ),
+                    "record_size": kit.get(
+                        "record_size"
+                    ),
+                    "confidence": reconstruction.get(
+                        "confidence"
+                    ),
+                    "reconstruction_score": reconstruction.get(
+                        "score",
+                        0.0,
+                    ),
+                    "confirmed_midi_count": len(
+                        mapping.get(
+                            "confirmed",
+                            [],
+                        )
+                    ),
+                    "probable_midi_count": len(
+                        mapping.get(
+                            "probable",
+                            [],
+                        )
+                    ),
+                    "possible_mapping_count": len(
+                        mapping.get(
+                            "possible",
+                            [],
+                        )
+                    ),
+                    "field_count": len(
+                        kit.get(
+                            "fields",
+                            [],
+                        )
+                    ),
+                    "unknown_parameter_count": statistics.get(
+                        "unknown_parameter_count",
+                        0,
+                    ),
+                    "dirty": session.get(
+                        "dirty",
+                        False,
+                    ),
+                }
+            )
+
+        return result
+
+    def build_editor_parameter_list(
         self,
         session: dict,
         kit_index: int,
-        relative_offset: int,
-    ) -> dict:
+    ) -> list[dict]:
         """
-        Internal helper.
+        #43
 
-        Pronalazi byte parameter u sesiji.
+        Priprema byte parametre jednog Drum Kita
+        za GUI prikaz.
         """
 
         kit = self._find_session_kit(
@@ -95,30 +136,91 @@
             [],
         )
 
+        result = []
+
         for parameter in parameters:
 
-            if parameter.get(
-                "offset"
-            ) == relative_offset:
+            parameter_type = parameter.get(
+                "parameter_type",
+                "unknown",
+            )
 
-                return parameter
+            if parameter_type == "midi_mapping":
 
-        raise IndexError(
-            f"Offset {relative_offset} was not found "
-            f"in Drum Kit {kit_index}."
-        )
+                editor_type = (
+                    "midi"
+                )
 
-    def _update_session_parameter(
+            elif parameter_type == (
+                "probable_midi_mapping"
+            ):
+
+                editor_type = (
+                    "midi_candidate"
+                )
+
+            elif parameter_type == (
+                "possible_mapping"
+            ):
+
+                editor_type = (
+                    "possible_mapping"
+                )
+
+            else:
+
+                editor_type = (
+                    "byte"
+                )
+
+            result.append(
+                {
+                    "offset": parameter.get(
+                        "offset"
+                    ),
+                    "hex_offset": parameter.get(
+                        "hex_offset"
+                    ),
+                    "value": parameter.get(
+                        "value"
+                    ),
+                    "hex": parameter.get(
+                        "hex"
+                    ),
+                    "editor_type": editor_type,
+                    "parameter_type": parameter_type,
+                    "classification": parameter.get(
+                        "classification"
+                    ),
+                    "confidence": parameter.get(
+                        "confidence"
+                    ),
+                    "confidence_score": parameter.get(
+                        "confidence_score",
+                        0.0,
+                    ),
+                    "midi_note": parameter.get(
+                        "midi_note"
+                    ),
+                    "midi_note_name": parameter.get(
+                        "midi_note_name"
+                    ),
+                    "editable": True,
+                }
+            )
+
+        return result
+
+    def build_editor_midi_mapping_list(
         self,
         session: dict,
         kit_index: int,
-        relative_offset: int,
-        value: int,
-    ) -> None:
+    ) -> list[dict]:
         """
-        Internal helper.
+        #43
 
-        Ažurira parameter i raw byte.
+        Vraća samo MIDI mapping kandidate
+        za odabrani Drum Kit.
         """
 
         kit = self._find_session_kit(
@@ -126,142 +228,132 @@
             kit_index,
         )
 
-        parameter = self._find_session_parameter(
-            session,
-            kit_index,
-            relative_offset,
+        mapping = kit.get(
+            "mapping",
+            {},
         )
 
-        parameter[
-            "value"
-        ] = value
+        result = []
 
-        parameter[
-            "hex"
-        ] = f"{value:02X}"
-
-        parameter_type = parameter.get(
-            "parameter_type"
-        )
-
-        if (
-            parameter_type
-            in (
-                "midi_mapping",
-                "probable_midi_mapping",
-                "possible_mapping",
-            )
-            and 0 <= value <= 127
+        for category in (
+            "confirmed",
+            "probable",
+            "possible",
         ):
 
-            parameter[
-                "midi_note"
-            ] = value
+            candidates = mapping.get(
+                category,
+                [],
+            )
 
-            try:
+            for candidate in candidates:
 
-                parameter[
-                    "midi_note_name"
-                ] = midi_to_note(
-                    value
+                result.append(
+                    {
+                        "kit_index": kit_index,
+                        "offset": candidate.get(
+                            "offset"
+                        ),
+                        "hex_offset": candidate.get(
+                            "hex_offset"
+                        ),
+                        "value": candidate.get(
+                            "value"
+                        ),
+                        "hex": candidate.get(
+                            "hex"
+                        ),
+                        "midi_note": candidate.get(
+                            "midi_note"
+                        ),
+                        "midi_note_name": candidate.get(
+                            "midi_note_name"
+                        ),
+                        "parameter_type": candidate.get(
+                            "parameter_type"
+                        ),
+                        "classification": candidate.get(
+                            "classification"
+                        ),
+                        "confidence": candidate.get(
+                            "confidence"
+                        ),
+                        "confidence_score": candidate.get(
+                            "confidence_score",
+                            0.0,
+                        ),
+                    }
                 )
 
-            except Exception:
-
-                parameter[
-                    "midi_note_name"
-                ] = None
-
-        else:
-
-            parameter[
-                "midi_note"
-            ] = None
-
-            parameter[
-                "midi_note_name"
-            ] = None
-
-        raw_bytes = kit.get(
-            "raw_bytes",
-            [],
+        result.sort(
+            key=lambda item: (
+                item.get(
+                    "offset",
+                    0,
+                )
+            )
         )
 
-        if (
-            relative_offset < 0
-            or relative_offset >= len(
-                raw_bytes
-            )
-        ):
+        return result
 
-            raise IndexError(
-                "Offset is outside raw byte array."
-            )
-
-        raw_bytes[
-            relative_offset
-        ] = value
-
-        kit[
-            "raw_bytes"
-        ] = raw_bytes
-
-        kit[
-            "raw_hex"
-        ] = " ".join(
-            f"{byte:02X}"
-            for byte in raw_bytes
-        )
-
-    def _record_editor_change(
+    def build_editor_field_list(
         self,
         session: dict,
-        change: dict,
-    ) -> None:
+        kit_index: int,
+    ) -> list[dict]:
         """
-        Internal helper.
+        #43
 
-        Dodaje promjenu u history i briše redo stack.
+        Vraća field strukturu odabranog Drum Kita.
         """
 
-        session.setdefault(
-            "history",
-            [],
-        ).append(
-            change
+        kit = self._find_session_kit(
+            session,
+            kit_index,
         )
 
-        session[
-            "redo_stack"
-        ] = []
-
-        session[
-            "change_count"
-        ] = len(
-            session.get(
-                "history",
+        return [
+            {
+                "field_id": field.get(
+                    "field_id"
+                ),
+                "offsets": list(
+                    field.get(
+                        "offsets",
+                        [],
+                    )
+                ),
+                "start_offset": field.get(
+                    "start_offset"
+                ),
+                "end_offset": field.get(
+                    "end_offset"
+                ),
+                "field_size": field.get(
+                    "field_size"
+                ),
+                "classification": field.get(
+                    "classification"
+                ),
+                "score": field.get(
+                    "score",
+                    0.0,
+                ),
+                "parameter_count": len(
+                    field.get(
+                        "parameters",
+                        [],
+                    )
+                ),
+            }
+            for field
+            in kit.get(
+                "fields",
                 [],
             )
-        )
+        ]
 
-        session[
-            "undo_available"
-        ] = bool(
-            session.get(
-                "history",
-                [],
-            )
-        )
-
-        session[
-            "redo_available"
-        ] = False
-
-        session[
-            "dirty"
-        ] = True
-
-    def edit_session_byte(
+    def edit_editor_parameter(
         self,
         session: dict,
         kit_index: int,
@@ -269,85 +361,48 @@
         value: int,
     ) -> dict:
         """
-        #42
+        #43
 
-        Mijenja jedan byte u editor sesiji.
-
-        Promjena se zapisuje u history.
+        GUI-friendly wrapper oko #42 edit_session_byte().
         """
 
-        if not isinstance(
-            value,
-            int,
-        ):
-            raise TypeError(
-                "value must be an integer."
-            )
-
-        if value < 0 or value > 255:
-            raise ValueError(
-                "Byte value must be between 0 and 255."
-            )
-
-        parameter = self._find_session_parameter(
-            session,
-            kit_index,
-            relative_offset,
-        )
-
-        old_value = parameter.get(
-            "value"
-        )
-
-        if old_value == value:
-
-            return {
-                "success": True,
-                "changed": False,
-                "message": (
-                    "Value is already set."
-                ),
-                "session": session,
-            }
-
-        change = {
-            "kit_index": kit_index,
-            "relative_offset": relative_offset,
-            "old_value": old_value,
-            "new_value": value,
-            "old_hex": (
-                f"{old_value:02X}"
-                if isinstance(
-                    old_value,
-                    int,
-                )
-                else None
-            ),
-            "new_hex": f"{value:02X}",
-        }
-
-        self._update_session_parameter(
-            session,
-            kit_index,
-            relative_offset,
-            value,
-        )
-
-        self._record_editor_change(
-            session,
-            change,
+        result = self.edit_session_byte(
+            session=session,
+            kit_index=kit_index,
+            relative_offset=relative_offset,
+            value=value,
         )
 
         return {
-            "success": True,
-            "changed": True,
-            "change": change,
-            "session": session,
-            "dirty": True,
+            "success": result.get(
+                "success",
+                False,
+            ),
+            "changed": result.get(
+                "changed",
+                False,
+            ),
+            "kit_index": kit_index,
+            "relative_offset": relative_offset,
+            "change": result.get(
+                "change"
+            ),
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
             "source_file_modified": False,
         }
 
-    def edit_session_midi_note(
+    def edit_editor_midi_mapping(
         self,
         session: dict,
         kit_index: int,
@@ -355,457 +410,213 @@
         midi_note: int,
     ) -> dict:
         """
-        #42
+        #43
 
-        Mijenja MIDI note u editor sesiji.
+        GUI-friendly wrapper oko MIDI note editora.
         """
 
-        if not isinstance(
-            midi_note,
-            int,
-        ):
-            raise TypeError(
-                "midi_note must be an integer."
-            )
-
-        if midi_note < 0 or midi_note > 127:
-            raise ValueError(
-                "MIDI note must be between 0 and 127."
-            )
-
-        result = self.edit_session_byte(
+        result = self.edit_session_midi_note(
             session=session,
             kit_index=kit_index,
             relative_offset=relative_offset,
-            value=midi_note,
+            midi_note=midi_note,
         )
 
-        if result.get(
-            "changed"
-        ):
-
-            result[
+        return {
+            "success": result.get(
+                "success",
+                False,
+            ),
+            "changed": result.get(
+                "changed",
+                False,
+            ),
+            "kit_index": kit_index,
+            "relative_offset": relative_offset,
+            "midi_note": result.get(
                 "midi_note"
-            ] = midi_note
-
-            try:
-
-                result[
-                    "midi_note_name"
-                ] = midi_to_note(
-                    midi_note
-                )
-
-            except Exception:
-
-                result[
-                    "midi_note_name"
-                ] = None
-
-        return result
-
-    def undo_editor_change(
-        self,
-        session: dict,
-    ) -> dict:
-        """
-        #42
-
-        Poništava posljednju promjenu.
-        """
-
-        history = session.get(
-            "history",
-            [],
-        )
-
-        if not history:
-
-            session[
-                "undo_available"
-            ] = False
-
-            return {
-                "success": False,
-                "message": (
-                    "Nothing to undo."
-                ),
-                "session": session,
-            }
-
-        change = history.pop()
-
-        kit_index = change[
-            "kit_index"
-        ]
-
-        relative_offset = change[
-            "relative_offset"
-        ]
-
-        old_value = change[
-            "old_value"
-        ]
-
-        new_value = change[
-            "new_value"
-        ]
-
-        self._update_session_parameter(
-            session,
-            kit_index,
-            relative_offset,
-            old_value,
-        )
-
-        session.setdefault(
-            "redo_stack",
-            [],
-        ).append(
-            change
-        )
-
-        session[
-            "change_count"
-        ] = len(
-            history
-        )
-
-        session[
-            "undo_available"
-        ] = bool(
-            history
-        )
-
-        session[
-            "redo_available"
-        ] = True
-
-        session[
-            "dirty"
-        ] = bool(
-            history
-        )
-
-        return {
-            "success": True,
-            "operation": "undo",
-            "kit_index": kit_index,
-            "relative_offset": relative_offset,
-            "restored_value": old_value,
-            "undone_value": new_value,
-            "session": session,
-            "source_file_modified": False,
-        }
-
-    def redo_editor_change(
-        self,
-        session: dict,
-    ) -> dict:
-        """
-        #42
-
-        Ponovo primjenjuje posljednju undo promjenu.
-        """
-
-        redo_stack = session.get(
-            "redo_stack",
-            [],
-        )
-
-        if not redo_stack:
-
-            session[
-                "redo_available"
-            ] = False
-
-            return {
-                "success": False,
-                "message": (
-                    "Nothing to redo."
-                ),
-                "session": session,
-            }
-
-        change = redo_stack.pop()
-
-        kit_index = change[
-            "kit_index"
-        ]
-
-        relative_offset = change[
-            "relative_offset"
-        ]
-
-        old_value = change[
-            "old_value"
-        ]
-
-        new_value = change[
-            "new_value"
-        ]
-
-        self._update_session_parameter(
-            session,
-            kit_index,
-            relative_offset,
-            new_value,
-        )
-
-        session.setdefault(
-            "history",
-            [],
-        ).append(
-            change
-        )
-
-        session[
-            "change_count"
-        ] = len(
-            session[
-                "history"
-            ]
-        )
-
-        session[
-            "undo_available"
-        ] = True
-
-        session[
-            "redo_available"
-        ] = bool(
-            redo_stack
-        )
-
-        session[
-            "dirty"
-        ] = True
-
-        return {
-            "success": True,
-            "operation": "redo",
-            "kit_index": kit_index,
-            "relative_offset": relative_offset,
-            "restored_value": new_value,
-            "previous_value": old_value,
-            "session": session,
-            "source_file_modified": False,
-        }
-
-    def get_editor_change_history(
-        self,
-        session: dict,
-    ) -> list[dict]:
-        """
-        #42
-
-        Vraća kompletnu historiju promjena.
-        """
-
-        return list(
-            session.get(
-                "history",
-                [],
-            )
-        )
-
-    def get_editor_redo_history(
-        self,
-        session: dict,
-    ) -> list[dict]:
-        """
-        #42
-
-        Vraća trenutno dostupne redo promjene.
-        """
-
-        return list(
-            session.get(
-                "redo_stack",
-                [],
-            )
-        )
-
-    def clear_editor_history(
-        self,
-        session: dict,
-    ) -> dict:
-        """
-        #42
-
-        Briše undo/redo historiju.
-
-        Trenutne vrijednosti modela ostaju iste.
-        """
-
-        session[
-            "history"
-        ] = []
-
-        session[
-            "redo_stack"
-        ] = []
-
-        session[
-            "change_count"
-        ] = 0
-
-        session[
-            "undo_available"
-        ] = False
-
-        session[
-            "redo_available"
-        ] = False
-
-        return {
-            "success": True,
-            "history_cleared": True,
-            "change_count": 0,
+            ),
+            "midi_note_name": result.get(
+                "midi_note_name"
+            ),
+            "change": result.get(
+                "change"
+            ),
             "dirty": session.get(
                 "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
                 False,
             ),
             "source_file_modified": False,
         }
 
-    def validate_editor_session(
+    def build_editor_selected_kit_data(
+        self,
+        session: dict,
+        kit_index: int,
+    ) -> dict:
+        """
+        #43
+
+        Glavni GUI data paket za jedan odabrani Drum Kit.
+        """
+
+        kit = self._find_session_kit(
+            session,
+            kit_index,
+        )
+
+        return {
+            "kit_index": kit.get(
+                "kit_index"
+            ),
+            "kit_name": kit.get(
+                "kit_name"
+            ),
+            "record_size": kit.get(
+                "record_size"
+            ),
+            "raw_hex": kit.get(
+                "raw_hex"
+            ),
+            "reconstruction": kit.get(
+                "reconstruction",
+                {},
+            ),
+            "statistics": kit.get(
+                "statistics",
+                {},
+            ),
+            "parameters": (
+                self.build_editor_parameter_list(
+                    session,
+                    kit_index,
+                )
+            ),
+            "midi_mappings": (
+                self.build_editor_midi_mapping_list(
+                    session,
+                    kit_index,
+                )
+            ),
+            "fields": (
+                self.build_editor_field_list(
+                    session,
+                    kit_index,
+                )
+            ),
+            "change_history": (
+                self.get_editor_change_history(
+                    session
+                )
+            ),
+            "dirty": session.get(
+                "dirty",
+                False,
+            ),
+            "undo_available": session.get(
+                "undo_available",
+                False,
+            ),
+            "redo_available": session.get(
+                "redo_available",
+                False,
+            ),
+            "write_back": False,
+            "source_file_modified": False,
+        }
+
+    def build_editor_data_package(
         self,
         session: dict,
     ) -> dict:
         """
-        #42
+        #43
 
-        Validira trenutno stanje editor sesije.
+        Kompletan data paket za GUI editor.
+
+        GUI može koristiti ovaj objekt kao jedini
+        ulazni izvor podataka.
         """
-
-        model = session.get(
-            "model"
-        )
-
-        if model is None:
-
-            return {
-                "valid": False,
-                "errors": [
-                    "Session has no model."
-                ],
-            }
 
         validation = (
-            self.validate_editable_drum_kit_model(
-                model
+            self.validate_editor_session(
+                session
             )
         )
 
-        errors = list(
-            validation.get(
-                "errors",
-                [],
-            )
+        kits = self.build_editor_kit_list(
+            session
         )
 
-        warnings = list(
-            validation.get(
-                "warnings",
-                [],
-            )
-        )
+        selected_kit = None
 
-        if session.get(
-            "source_file_modified",
-            False,
-        ):
+        if kits:
 
-            errors.append(
-                "Source file modification detected."
-            )
-
-        if session.get(
-            "write_back",
-            False,
-        ):
-
-            errors.append(
-                "Write-back must remain disabled."
+            selected_kit = self.build_editor_selected_kit_data(
+                session,
+                kits[0].get(
+                    "kit_index"
+                ),
             )
 
         return {
-            "valid": (
-                len(errors) == 0
-            ),
-            "errors": errors,
-            "warnings": warnings,
-            "change_count": session.get(
-                "change_count",
-                0,
-            ),
-            "undo_available": session.get(
-                "undo_available",
+            "editor_version": "#43",
+            "valid": validation.get(
+                "valid",
                 False,
             ),
-            "redo_available": session.get(
-                "redo_available",
-                False,
-            ),
-            "dirty": session.get(
-                "dirty",
-                False,
-            ),
-            "source_file_modified": (
-                session.get(
-                    "source_file_modified",
-                    False,
+            "kits": kits,
+            "selected_kit": selected_kit,
+            "session_status": (
+                self.get_editor_session_status(
+                    session
                 )
             ),
-            "write_back": session.get(
-                "write_back",
-                False,
-            ),
+            "validation": validation,
+            "capabilities": {
+                "view_kits": True,
+                "view_parameters": True,
+                "view_midi_mapping": True,
+                "edit_bytes": True,
+                "edit_midi_notes": True,
+                "undo": True,
+                "redo": True,
+                "change_history": True,
+                "write_back": False,
+                "source_file_modification": False,
+            },
         }
 
-    def get_editor_session_status(
+    def select_editor_kit(
         self,
         session: dict,
+        kit_index: int,
     ) -> dict:
         """
-        #42
+        #43
 
-        Vraća kratak status editor sesije.
+        Vraća podatke za odabrani Drum Kit.
         """
 
+        data = (
+            self.build_editor_selected_kit_data(
+                session,
+                kit_index,
+            )
+        )
+
         return {
-            "session_version": (
-                session.get(
-                    "session_version",
-                    "#42",
-                )
-            ),
-            "dirty": session.get(
-                "dirty",
-                False,
-            ),
-            "change_count": session.get(
-                "change_count",
-                0,
-            ),
-            "undo_available": session.get(
-                "undo_available",
-                False,
-            ),
-            "redo_available": session.get(
-                "redo_available",
-                False,
-            ),
-            "write_back": session.get(
-                "write_back",
-                False,
-            ),
-            "source_file_modified": (
-                session.get(
-                    "source_file_modified",
-                    False,
-                )
-            ),
+            "success": True,
+            "selected_kit": data,
+            "kit_index": kit_index,
+            "source_file_modified": False,
         }
 ```

@@ -1,5 +1,4 @@
-```python id="k9x4pm"
-    ```python
+
     # ===============================================================
     # #45 MIDI MAPPING EDITOR INTERFACE
     # ===============================================================
@@ -45,8 +44,13 @@
 
             try:
                 if midi_note is not None:
-                    midi_note = int(midi_note)
-            except (TypeError, ValueError):
+                    midi_note = int(
+                        midi_note
+                    )
+            except (
+                TypeError,
+                ValueError,
+            ):
                 midi_note = None
 
             midi_valid = (
@@ -83,7 +87,10 @@
                 confidence_score = float(
                     confidence_score
                 )
-            except (TypeError, ValueError):
+            except (
+                TypeError,
+                ValueError,
+            ):
                 confidence_score = 0.0
 
             result.append(
@@ -234,8 +241,13 @@
         """
 
         try:
-            midi_note = int(midi_note)
-        except (TypeError, ValueError):
+            midi_note = int(
+                midi_note
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
             raise ValueError(
                 "midi_note must be an integer."
             )
@@ -279,7 +291,10 @@
             relative_offset = int(
                 relative_offset
             )
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError,
+        ):
             raise ValueError(
                 "relative_offset must be an integer."
             )
@@ -362,8 +377,13 @@
             )
 
             try:
-                score = float(score)
-            except (TypeError, ValueError):
+                score = float(
+                    score
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
                 continue
 
             confidence_scores.append(
@@ -371,8 +391,12 @@
             )
 
         average_confidence = (
-            sum(confidence_scores)
-            / len(confidence_scores)
+            sum(
+                confidence_scores
+            )
+            / len(
+                confidence_scores
+            )
             if confidence_scores
             else 0.0
         )
@@ -395,12 +419,16 @@
                 duplicate_midi_values
             ),
             "minimum_midi": (
-                min(midi_values)
+                min(
+                    midi_values
+                )
                 if midi_values
                 else None
             ),
             "maximum_midi": (
-                max(midi_values)
+                max(
+                    midi_values
+                )
                 if midi_values
                 else None
             ),
@@ -640,6 +668,4 @@
             ),
             "source_file_modified": False,
         }
-```
 
-```

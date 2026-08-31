@@ -1,4 +1,4 @@
-```python
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
@@ -893,4 +893,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
+

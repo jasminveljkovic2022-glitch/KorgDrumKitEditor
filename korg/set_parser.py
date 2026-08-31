@@ -1,31 +1,31 @@
 ```python
     # ===============================================================
-    # #34 MAPPING FIELD / GROUP DETECTION
+    # #35 MAPPING FIELD INTERPRETATION
     # ===============================================================
 
-    def analyze_mapping_fields(
+    def analyze_mapping_field_interpretation(
         self,
     ) -> list[dict]:
         """
-        #34
+        #35
 
-        Analizira rezultate #32 i #33 i pokušava
-        formirati funkcionalne mapping grupe.
+        Pokušava interpretirati mapping fieldove pronađene
+        u #34.
 
         Cilj:
-        - grupirati povezane byte pozicije
-        - koristiti #32 consistency evidence
-        - koristiti #33 relationship evidence
-        - pronaći potencijalne mapping fieldove
-        - rangirati jačinu svake grupe
+        - identificirati moguće MIDI note pozicije
+        - identificirati pomoćne / povezane pozicije
+        - razlikovati MIDI-like vrijednosti od ostalih vrijednosti
+        - koristiti rezultate #32, #33 i #34
+        - izračunati interpretation score
         - NE mijenjati originalni PCG/SET fajl
         """
 
-        records = (
-            self.find_drum_kit_name_records()
+        fields = (
+            self.analyze_mapping_fields()
         )
 
-        if not records:
+        if not fields:
             return []
 
         consistency_report = (
@@ -39,13 +39,6 @@
         if not consistency_report:
             return []
 
-        if not relationship_report:
-            return []
-
-        # -----------------------------------------------------------
-        # Build lookup tables
-        # -----------------------------------------------------------
-
         consistency_by_offset = {
             item[
                 "relative_offset"
@@ -53,60 +46,9 @@
             for item in consistency_report
         }
 
-        strong_relationships = [
-            item
-            for item in relationship_report
-            if item[
-                "classification"
-            ]
-            == "strong_related_mapping"
-        ]
+        relationship_by_pair = {}
 
-        possible_relationships = [
-            item
-            for item in relationship_report
-            if item[
-                "classification"
-            ]
-            in (
-                "strong_related_mapping",
-                "possible_related_mapping",
-                "constant_relationship",
-            )
-        ]
-
-        # -----------------------------------------------------------
-        # Candidate offsets
-        # -----------------------------------------------------------
-
-        candidate_offsets = set()
-
-        for item in consistency_report:
-
-            classification = item[
-                "classification"
-            ]
-
-            if classification in (
-                "strong_mapping_candidate",
-                "possible_mapping_candidate",
-            ):
-                candidate_offsets.add(
-                    item[
-                        "relative_offset"
-                    ]
-                )
-
-        # -----------------------------------------------------------
-        # Build relationship graph
-        # -----------------------------------------------------------
-
-        graph = {}
-
-        for offset in candidate_offsets:
-            graph[offset] = set()
-
-        for relationship in possible_relationships:
+        for relationship in relationship_report:
 
             offset_a = relationship[
                 "offset_a"
@@ -116,579 +58,681 @@
                 "offset_b"
             ]
 
-            if (
-                offset_a not in candidate_offsets
-                and offset_b not in candidate_offsets
-            ):
-                continue
-
-            graph.setdefault(
-                offset_a,
-                set(),
-            )
-
-            graph.setdefault(
-                offset_b,
-                set(),
-            )
-
-            graph[
-                offset_a
-            ].add(offset_b)
-
-            graph[
-                offset_b
-            ].add(offset_a)
-
-        # -----------------------------------------------------------
-        # Find connected groups
-        # -----------------------------------------------------------
-
-        groups = []
-
-        visited = set()
-
-        for start_offset in sorted(
-            graph.keys()
-        ):
-
-            if start_offset in visited:
-                continue
-
-            stack = [
-                start_offset
-            ]
-
-            group = set()
-
-            while stack:
-
-                current = stack.pop()
-
-                if current in visited:
-                    continue
-
-                visited.add(current)
-                group.add(current)
-
-                for neighbor in graph.get(
-                    current,
-                    set(),
-                ):
-
-                    if neighbor not in visited:
-                        stack.append(
-                            neighbor
-                        )
-
-            if group:
-                groups.append(
-                    sorted(group)
+            relationship_by_pair[
+                (
+                    offset_a,
+                    offset_b,
                 )
+            ] = relationship
 
-        # -----------------------------------------------------------
-        # If no graph groups exist, use individual
-        # strong candidates as single-position groups.
-        # -----------------------------------------------------------
-
-        if not groups:
-
-            strong_candidates = [
-                item
-                for item in consistency_report
-                if item[
-                    "classification"
-                ]
-                == "strong_mapping_candidate"
-            ]
-
-            for item in strong_candidates:
-
-                groups.append(
-                    [
-                        item[
-                            "relative_offset"
-                        ]
-                    ]
+            relationship_by_pair[
+                (
+                    offset_b,
+                    offset_a,
                 )
+            ] = relationship
 
-        field_report = []
+        interpretation_report = []
 
         # -----------------------------------------------------------
-        # Analyze every detected group
+        # Analyze every mapping field
         # -----------------------------------------------------------
 
-        for group_index, offsets in enumerate(
-            groups,
-            start=1,
-        ):
+        for field in fields:
+
+            offsets = field.get(
+                "offsets",
+                [],
+            )
 
             if not offsets:
                 continue
 
-            position_reports = []
+            positions = []
 
             for offset in offsets:
 
-                report = (
+                consistency = (
                     consistency_by_offset.get(
                         offset
                     )
                 )
 
-                if report:
-                    position_reports.append(
-                        report
+                if not consistency:
+                    continue
+
+                unique_values = consistency.get(
+                    "unique_values",
+                    [],
+                )
+
+                midi_values = consistency.get(
+                    "midi_values",
+                    [],
+                )
+
+                midi_ratio = consistency.get(
+                    "midi_ratio",
+                    0.0,
+                )
+
+                consistency_score = consistency.get(
+                    "consistency_score",
+                    0.0,
+                )
+
+                minimum_value = consistency.get(
+                    "minimum_value"
+                )
+
+                maximum_value = consistency.get(
+                    "maximum_value"
+                )
+
+                value_range = consistency.get(
+                    "value_range"
+                )
+
+                # ---------------------------------------------------
+                # MIDI note plausibility
+                # ---------------------------------------------------
+
+                midi_note_score = 0.0
+
+                if midi_ratio >= 1.0:
+                    midi_note_score += 40.0
+
+                elif midi_ratio >= 0.75:
+                    midi_note_score += 30.0
+
+                elif midi_ratio >= 0.50:
+                    midi_note_score += 15.0
+
+                # Typical MIDI note range
+                if (
+                    minimum_value is not None
+                    and maximum_value is not None
+                ):
+
+                    if (
+                        0
+                        <= minimum_value
+                        <= 127
+                        and
+                        0
+                        <= maximum_value
+                        <= 127
+                    ):
+                        midi_note_score += 25.0
+
+                    if (
+                        24
+                        <= minimum_value
+                        <= 108
+                        and
+                        24
+                        <= maximum_value
+                        <= 108
+                    ):
+                        midi_note_score += 15.0
+
+                # Compact note range is useful evidence
+                if value_range is not None:
+
+                    if value_range <= 12:
+                        midi_note_score += 15.0
+
+                    elif value_range <= 24:
+                        midi_note_score += 10.0
+
+                    elif value_range <= 36:
+                        midi_note_score += 5.0
+
+                midi_note_score = min(
+                    midi_note_score,
+                    100.0,
+                )
+
+                # ---------------------------------------------------
+                # Constant-field detection
+                # ---------------------------------------------------
+
+                if len(unique_values) == 1:
+
+                    field_type = (
+                        "constant_parameter"
                     )
 
-            if not position_reports:
+                    interpretation_score = (
+                        consistency_score
+                    )
+
+                    confidence = (
+                        "low"
+                    )
+
+                # ---------------------------------------------------
+                # MIDI note candidate
+                # ---------------------------------------------------
+
+                elif midi_note_score >= 75.0:
+
+                    field_type = (
+                        "midi_note_candidate"
+                    )
+
+                    interpretation_score = (
+                        midi_note_score
+                    )
+
+                    confidence = (
+                        "high"
+                        if midi_note_score >= 90.0
+                        else "medium"
+                    )
+
+                elif midi_note_score >= 55.0:
+
+                    field_type = (
+                        "possible_midi_note"
+                    )
+
+                    interpretation_score = (
+                        midi_note_score
+                    )
+
+                    confidence = (
+                        "medium"
+                    )
+
+                else:
+
+                    field_type = (
+                        "unknown_mapping_parameter"
+                    )
+
+                    interpretation_score = (
+                        consistency_score
+                    )
+
+                    confidence = (
+                        "low"
+                    )
+
+                # ---------------------------------------------------
+                # MIDI note names
+                # ---------------------------------------------------
+
+                note_names = []
+
+                for value in midi_values:
+
+                    try:
+                        note_names.append(
+                            midi_to_note(
+                                value
+                            )
+                        )
+                    except Exception:
+                        note_names.append(
+                            None
+                        )
+
+                # ---------------------------------------------------
+                # Related positions
+                # ---------------------------------------------------
+
+                related_positions = []
+
+                for other_offset in offsets:
+
+                    if (
+                        other_offset
+                        == offset
+                    ):
+                        continue
+
+                    relationship = (
+                        relationship_by_pair.get(
+                            (
+                                offset,
+                                other_offset,
+                            )
+                        )
+                    )
+
+                    if not relationship:
+                        continue
+
+                    related_positions.append(
+                        {
+                            "offset": (
+                                other_offset
+                            ),
+                            "relationship_score": (
+                                relationship[
+                                    "relationship_score"
+                                ]
+                            ),
+                            "co_change_ratio": (
+                                relationship[
+                                    "co_change_ratio"
+                                ]
+                            ),
+                            "correlation": (
+                                relationship[
+                                    "correlation"
+                                ]
+                            ),
+                            "constant_delta": (
+                                relationship[
+                                    "constant_delta"
+                                ]
+                            ),
+                            "classification": (
+                                relationship[
+                                    "classification"
+                                ]
+                            ),
+                        }
+                    )
+
+                related_positions.sort(
+                    key=lambda item: (
+                        item[
+                            "relationship_score"
+                        ]
+                    ),
+                    reverse=True,
+                )
+
+                positions.append(
+                    {
+                        "offset": offset,
+                        "unique_values": (
+                            unique_values
+                        ),
+                        "hex_values": (
+                            consistency.get(
+                                "hex_values",
+                                [],
+                            )
+                        ),
+                        "midi_values": (
+                            midi_values
+                        ),
+                        "midi_note_names": (
+                            note_names
+                        ),
+                        "midi_ratio": (
+                            midi_ratio
+                        ),
+                        "minimum_value": (
+                            minimum_value
+                        ),
+                        "maximum_value": (
+                            maximum_value
+                        ),
+                        "value_range": (
+                            value_range
+                        ),
+                        "consistency_score": (
+                            consistency_score
+                        ),
+                        "midi_note_score": round(
+                            midi_note_score,
+                            2,
+                        ),
+                        "field_type": (
+                            field_type
+                        ),
+                        "confidence": (
+                            confidence
+                        ),
+                        "related_positions": (
+                            related_positions
+                        ),
+                    }
+                )
+
+            if not positions:
                 continue
 
             # -------------------------------------------------------
-            # Group-level consistency
+            # Find best MIDI note position
             # -------------------------------------------------------
 
-            consistency_scores = [
-                item[
-                    "consistency_score"
-                ]
-                for item in position_reports
-            ]
-
-            midi_ratios = [
-                item[
-                    "midi_ratio"
-                ]
-                for item in position_reports
-            ]
-
-            group_consistency_score = (
-                sum(
-                    consistency_scores
-                )
-                / len(
-                    consistency_scores
-                )
-            )
-
-            group_midi_ratio = (
-                sum(
-                    midi_ratios
-                )
-                / len(
-                    midi_ratios
-                )
-            )
-
-            # -------------------------------------------------------
-            # Relationship evidence inside group
-            # -------------------------------------------------------
-
-            internal_relationships = []
-
-            for relationship in relationship_report:
-
-                offset_a = relationship[
-                    "offset_a"
-                ]
-
-                offset_b = relationship[
-                    "offset_b"
-                ]
-
-                if (
-                    offset_a in offsets
-                    and offset_b in offsets
-                ):
-                    internal_relationships.append(
-                        relationship
-                    )
-
-            relationship_scores = [
-                item[
-                    "relationship_score"
-                ]
-                for item in internal_relationships
-            ]
-
-            group_relationship_score = (
-                sum(
-                    relationship_scores
-                )
-                / len(
-                    relationship_scores
-                )
-                if relationship_scores
-                else 0.0
-            )
-
-            strong_internal_count = sum(
-                1
-                for item
-                in internal_relationships
+            midi_candidates = [
+                item
+                for item in positions
                 if item[
-                    "classification"
-                ]
-                == "strong_related_mapping"
-            )
-
-            possible_internal_count = sum(
-                1
-                for item
-                in internal_relationships
-                if item[
-                    "classification"
+                    "field_type"
                 ]
                 in (
-                    "strong_related_mapping",
-                    "possible_related_mapping",
-                    "constant_relationship",
+                    "midi_note_candidate",
+                    "possible_midi_note",
                 )
+            ]
+
+            midi_candidates.sort(
+                key=lambda item: (
+                    item[
+                        "midi_note_score"
+                    ],
+                    item[
+                        "midi_ratio"
+                    ],
+                    item[
+                        "consistency_score"
+                    ],
+                ),
+                reverse=True,
+            )
+
+            primary_midi_position = (
+                midi_candidates[0]
+                if midi_candidates
+                else None
             )
 
             # -------------------------------------------------------
-            # Group size evidence
+            # Field-level MIDI score
             # -------------------------------------------------------
 
-            group_size = len(
-                offsets
-            )
+            if primary_midi_position:
 
-            if group_size == 1:
-                size_score = 0.50
-
-            elif group_size == 2:
-                size_score = 0.85
-
-            elif group_size <= 4:
-                size_score = 1.00
-
-            elif group_size <= 8:
-                size_score = 0.85
+                field_midi_score = (
+                    primary_midi_position[
+                        "midi_note_score"
+                    ]
+                )
 
             else:
-                size_score = 0.65
+
+                field_midi_score = (
+                    field.get(
+                        "group_midi_ratio",
+                        0.0,
+                    )
+                    * 100.0
+                )
 
             # -------------------------------------------------------
-            # Contiguous offset evidence
+            # Field relationship evidence
             # -------------------------------------------------------
 
-            contiguous_count = 0
+            group_relationship_score = field.get(
+                "group_relationship_score",
+                0.0,
+            )
 
-            for i in range(
-                1,
-                len(offsets),
+            group_consistency_score = field.get(
+                "group_consistency_score",
+                0.0,
+            )
+
+            contiguous_ratio = field.get(
+                "contiguous_ratio",
+                0.0,
+            )
+
+            # -------------------------------------------------------
+            # Determine likely field role
+            # -------------------------------------------------------
+
+            role_evidence = []
+
+            if primary_midi_position:
+
+                role_evidence.append(
+                    "field_contains_midi_note_candidate"
+                )
+
+            if group_relationship_score >= 80.0:
+
+                role_evidence.append(
+                    "field_has_strong_internal_relationships"
+                )
+
+            if group_consistency_score >= 80.0:
+
+                role_evidence.append(
+                    "field_positions_are_highly_consistent"
+                )
+
+            if contiguous_ratio >= 0.75:
+
+                role_evidence.append(
+                    "field_offsets_are_mostly_contiguous"
+                )
+
+            if len(
+                positions
+            ) >= 2:
+
+                role_evidence.append(
+                    "field_contains_multiple_positions"
+                )
+
+            # -------------------------------------------------------
+            # Determine interpretation
+            # -------------------------------------------------------
+
+            if (
+                primary_midi_position
+                and field_midi_score >= 85.0
+                and group_relationship_score >= 70.0
             ):
 
-                if (
-                    offsets[i]
-                    == offsets[i - 1] + 1
-                ):
-                    contiguous_count += 1
+                interpretation = (
+                    "likely_midi_mapping_field"
+                )
 
-            possible_contiguous_links = max(
-                len(offsets) - 1,
-                0,
-            )
+            elif (
+                primary_midi_position
+                and field_midi_score >= 70.0
+            ):
 
-            contiguous_ratio = (
-                contiguous_count
-                / possible_contiguous_links
-                if possible_contiguous_links
-                else 1.0
-            )
+                interpretation = (
+                    "possible_midi_mapping_field"
+                )
+
+            elif (
+                group_relationship_score >= 80.0
+                and len(positions) >= 2
+            ):
+
+                interpretation = (
+                    "related_parameter_group"
+                )
+
+            elif (
+                len(positions) == 1
+                and positions[0][
+                    "field_type"
+                ]
+                == "constant_parameter"
+            ):
+
+                interpretation = (
+                    "constant_parameter_field"
+                )
+
+            else:
+
+                interpretation = (
+                    "unknown_mapping_field"
+                )
 
             # -------------------------------------------------------
-            # Group score
+            # Final interpretation score
             # -------------------------------------------------------
 
-            group_score = (
-                group_consistency_score
-                * 0.30
-                + group_relationship_score
-                * 0.35
-                + group_midi_ratio
-                * 100.0
-                * 0.15
-                + size_score
-                * 100.0
-                * 0.10
-                + contiguous_ratio
-                * 100.0
-                * 0.10
+            interpretation_score = (
+                field_midi_score * 0.40
+                + group_relationship_score * 0.30
+                + group_consistency_score * 0.20
+                + contiguous_ratio * 100.0 * 0.10
             )
 
-            group_score = min(
-                group_score,
+            interpretation_score = min(
+                interpretation_score,
                 100.0,
             )
 
             # -------------------------------------------------------
-            # Evidence
-            # -------------------------------------------------------
-
-            evidence = []
-
-            if group_size >= 2:
-                evidence.append(
-                    "multiple_related_positions_form_group"
-                )
-
-            if strong_internal_count > 0:
-                evidence.append(
-                    "group_contains_strong_relationships"
-                )
-
-            if (
-                possible_internal_count
-                >= max(
-                    group_size - 1,
-                    1,
-                )
-            ):
-                evidence.append(
-                    "most_group_positions_are_relationship_connected"
-                )
-
-            if group_consistency_score >= 80.0:
-                evidence.append(
-                    "group_positions_have_high_consistency"
-                )
-
-            elif group_consistency_score >= 65.0:
-                evidence.append(
-                    "group_positions_have_moderate_consistency"
-                )
-
-            if group_midi_ratio >= 0.75:
-                evidence.append(
-                    "group_has_strong_midi_value_evidence"
-                )
-
-            elif group_midi_ratio >= 0.50:
-                evidence.append(
-                    "group_has_partial_midi_value_evidence"
-                )
-
-            if contiguous_ratio >= 0.75:
-                evidence.append(
-                    "group_positions_are_mostly_contiguous"
-                )
-
-            if group_relationship_score >= 80.0:
-                evidence.append(
-                    "group_has_strong_internal_relationship"
-                )
-
-            # -------------------------------------------------------
-            # Classification
+            # Confidence
             # -------------------------------------------------------
 
             if (
-                group_score >= 80.0
-                and group_size >= 2
-                and (
-                    strong_internal_count >= 1
-                    or group_relationship_score
-                    >= 80.0
-                )
+                interpretation_score >= 85.0
+                and interpretation
+                == "likely_midi_mapping_field"
             ):
-                classification = (
-                    "strong_mapping_field"
+
+                field_confidence = (
+                    "high"
                 )
 
-            elif (
-                group_score >= 65.0
-                and group_size >= 2
-            ):
-                classification = (
-                    "possible_mapping_field"
-                )
+            elif interpretation_score >= 70.0:
 
-            elif (
-                group_size == 1
-                and group_consistency_score
-                >= 80.0
-            ):
-                classification = (
-                    "single_position_mapping_field"
+                field_confidence = (
+                    "medium"
                 )
 
             else:
-                classification = (
-                    "weak_mapping_field"
+
+                field_confidence = (
+                    "low"
                 )
 
             # -------------------------------------------------------
-            # Collect values for each offset
+            # MIDI mapping summary
             # -------------------------------------------------------
 
-            group_values = {}
+            midi_mapping = None
 
-            for offset in offsets:
+            if primary_midi_position:
 
-                report = (
-                    consistency_by_offset.get(
-                        offset
-                    )
-                )
-
-                if report:
-
-                    group_values[
-                        offset
-                    ] = {
-                        "unique_values": (
-                            report[
-                                "unique_values"
-                            ]
-                        ),
-                        "hex_values": (
-                            report[
-                                "hex_values"
-                            ]
-                        ),
-                        "midi_values": (
-                            report[
-                                "midi_values"
-                            ]
-                        ),
-                        "midi_note_names": (
-                            report[
-                                "midi_note_names"
-                            ]
-                        ),
-                        "consistency_score": (
-                            report[
-                                "consistency_score"
-                            ]
-                        ),
-                        "classification": (
-                            report[
-                                "classification"
-                            ]
-                        ),
-                    }
-
-            # -------------------------------------------------------
-            # Relationship summary
-            # -------------------------------------------------------
-
-            relationship_summary = []
-
-            for relationship in internal_relationships:
-
-                relationship_summary.append(
-                    {
-                        "offset_a": (
-                            relationship[
-                                "offset_a"
-                            ]
-                        ),
-                        "offset_b": (
-                            relationship[
-                                "offset_b"
-                            ]
-                        ),
-                        "relationship_score": (
-                            relationship[
-                                "relationship_score"
-                            ]
-                        ),
-                        "co_change_ratio": (
-                            relationship[
-                                "co_change_ratio"
-                            ]
-                        ),
-                        "correlation": (
-                            relationship[
-                                "correlation"
-                            ]
-                        ),
-                        "constant_delta": (
-                            relationship[
-                                "constant_delta"
-                            ]
-                        ),
-                        "classification": (
-                            relationship[
-                                "classification"
-                            ]
-                        ),
-                    }
-                )
+                midi_mapping = {
+                    "relative_offset": (
+                        primary_midi_position[
+                            "offset"
+                        ]
+                    ),
+                    "field_type": (
+                        primary_midi_position[
+                            "field_type"
+                        ]
+                    ),
+                    "midi_values": (
+                        primary_midi_position[
+                            "midi_values"
+                        ]
+                    ),
+                    "midi_note_names": (
+                        primary_midi_position[
+                            "midi_note_names"
+                        ]
+                    ),
+                    "minimum_value": (
+                        primary_midi_position[
+                            "minimum_value"
+                        ]
+                    ),
+                    "maximum_value": (
+                        primary_midi_position[
+                            "maximum_value"
+                        ]
+                    ),
+                    "value_range": (
+                        primary_midi_position[
+                            "value_range"
+                        ]
+                    ),
+                    "midi_note_score": (
+                        primary_midi_position[
+                            "midi_note_score"
+                        ]
+                    ),
+                    "confidence": (
+                        primary_midi_position[
+                            "confidence"
+                        ]
+                    ),
+                }
 
             # -------------------------------------------------------
-            # Final group result
+            # Final result
             # -------------------------------------------------------
 
-            field_report.append(
+            interpretation_report.append(
                 {
-                    "field_id": (
-                        f"MAPPING_FIELD_{group_index:03d}"
+                    "field_id": field.get(
+                        "field_id"
+                    ),
+                    "rank": field.get(
+                        "rank"
                     ),
                     "offsets": offsets,
-                    "start_offset": min(
+                    "start_offset": field.get(
+                        "start_offset"
+                    ),
+                    "end_offset": field.get(
+                        "end_offset"
+                    ),
+                    "field_size": len(
                         offsets
                     ),
-                    "end_offset": max(
-                        offsets
+                    "field_score": field.get(
+                        "group_score",
+                        0.0,
                     ),
-                    "field_size": group_size,
-                    "contiguous_ratio": round(
-                        contiguous_ratio,
-                        4,
+                    "group_consistency_score": (
+                        group_consistency_score
                     ),
-                    "group_consistency_score": round(
-                        group_consistency_score,
+                    "group_relationship_score": (
+                        group_relationship_score
+                    ),
+                    "contiguous_ratio": (
+                        contiguous_ratio
+                    ),
+                    "field_midi_score": round(
+                        field_midi_score,
                         2,
                     ),
-                    "group_midi_ratio": round(
-                        group_midi_ratio,
-                        4,
-                    ),
-                    "group_relationship_score": round(
-                        group_relationship_score,
+                    "interpretation_score": round(
+                        interpretation_score,
                         2,
                     ),
-                    "strong_internal_relationships": (
-                        strong_internal_count
+                    "interpretation": (
+                        interpretation
                     ),
-                    "possible_internal_relationships": (
-                        possible_internal_count
+                    "confidence": (
+                        field_confidence
                     ),
-                    "group_score": round(
-                        group_score,
-                        2,
+                    "midi_mapping": (
+                        midi_mapping
                     ),
-                    "classification": (
-                        classification
-                    ),
-                    "evidence": evidence,
-                    "positions": group_values,
-                    "relationships": (
-                        relationship_summary
-                    ),
+                    "positions": positions,
+                    "evidence": role_evidence,
                 }
             )
 
         # -----------------------------------------------------------
-        # Sort strongest fields first
+        # Sort strongest interpretations first
         # -----------------------------------------------------------
 
-        field_report.sort(
+        interpretation_report.sort(
             key=lambda item: (
                 item[
-                    "group_score"
+                    "interpretation_score"
+                ],
+                item[
+                    "field_midi_score"
                 ],
                 item[
                     "group_relationship_score"
-                ],
-                item[
-                    "group_consistency_score"
-                ],
-                item[
-                    "group_midi_ratio"
                 ],
             ),
             reverse=True,
@@ -699,88 +743,94 @@
         # -----------------------------------------------------------
 
         for rank, item in enumerate(
-            field_report,
+            interpretation_report,
             start=1,
         ):
             item["rank"] = rank
 
-        return field_report
+        return interpretation_report
 
-    def find_strong_mapping_fields(
+    def find_likely_midi_mapping_fields(
         self,
     ) -> list[dict]:
         """
-        Returns only strong mapping fields.
+        Returns fields interpreted as likely
+        MIDI mapping fields.
         """
 
         report = (
-            self.analyze_mapping_fields()
+            self.analyze_mapping_field_interpretation()
         )
 
         return [
             item
             for item in report
             if item[
-                "classification"
+                "interpretation"
             ]
-            == "strong_mapping_field"
+            == "likely_midi_mapping_field"
         ]
 
-    def find_possible_mapping_fields(
+    def find_possible_midi_mapping_fields(
         self,
     ) -> list[dict]:
         """
-        Returns strong, possible and
-        single-position mapping fields.
+        Returns likely and possible MIDI
+        mapping fields.
         """
 
         report = (
-            self.analyze_mapping_fields()
+            self.analyze_mapping_field_interpretation()
         )
 
         return [
             item
             for item in report
             if item[
-                "classification"
+                "interpretation"
             ]
             in (
-                "strong_mapping_field",
-                "possible_mapping_field",
-                "single_position_mapping_field",
+                "likely_midi_mapping_field",
+                "possible_midi_mapping_field",
             )
         ]
 
-    def build_mapping_field_report(
+    def build_mapping_interpretation_report(
         self,
     ) -> dict:
         """
-        Complete #34 report.
+        Complete #35 report.
         """
 
         report = (
-            self.analyze_mapping_fields()
+            self.analyze_mapping_field_interpretation()
         )
 
-        strong_fields = [
+        likely_midi_fields = [
             item
             for item in report
             if item[
-                "classification"
+                "interpretation"
             ]
-            == "strong_mapping_field"
+            == "likely_midi_mapping_field"
         ]
 
-        possible_fields = [
+        possible_midi_fields = [
             item
             for item in report
             if item[
-                "classification"
+                "interpretation"
             ]
-            in (
-                "possible_mapping_field",
-                "single_position_mapping_field",
-            )
+            == "possible_midi_mapping_field"
+        ]
+
+        related_parameter_groups = [
+            item
+            for item in report
+            if item[
+                "interpretation"
+            ]
+            == "related_parameter_group"
         ]
 
         return {
@@ -790,15 +840,18 @@
             "record_size": (
                 self.DRUM_KIT_RECORD_SIZE
             ),
-            "fields_detected": len(
+            "fields_analyzed": len(
                 report
             ),
-            "strong_mapping_fields": (
-                strong_fields
+            "likely_midi_mapping_fields": (
+                likely_midi_fields
             ),
-            "possible_mapping_fields": (
-                possible_fields
+            "possible_midi_mapping_fields": (
+                possible_midi_fields
             ),
-            "all_fields": report,
+            "related_parameter_groups": (
+                related_parameter_groups
+            ),
+            "all_interpretations": report,
         }
 ```

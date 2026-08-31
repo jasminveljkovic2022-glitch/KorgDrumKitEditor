@@ -1,686 +1,673 @@
 ```python
     # ===============================================================
-    # #40 FINAL DRUM KIT MODEL
+    # #41 SAFE DRUM KIT EDITING LAYER
     # ===============================================================
 
-    def build_final_drum_kit_model(
-        self,
-    ) -> list[dict]:
-        """
-        #40
-
-        Gradi konačni interni model Drum Kit strukture.
-
-        Koristi:
-        #32 - Mapping Consistency
-        #33 - Mapping Relationships
-        #34 - Mapping Field Detection
-        #35 - Mapping Field Interpretation
-        #36 - MIDI Mapping Validation
-        #37 - Drum Kit Structure Reconstruction
-        #38 - Human-Readable Report
-        #39 - Final Mapping Verification
-
-        Cilj:
-        - napraviti stabilan model svakog Drum Kita
-        - izdvojiti potvrđene i vjerovatne MIDI mapping pozicije
-        - sačuvati raw bytes
-        - sačuvati offsets
-        - povezati fieldove
-        - pripremiti podatke za budući editor
-        - NE mijenjati originalni PCG/SET fajl
-        """
-
-        records = (
-            self.find_drum_kit_name_records()
-        )
-
-        if not records:
-            return []
-
-        final_verification = (
-            self.build_final_mapping_verification_report()
-        )
-
-        structure_report = (
-            self.reconstruct_drum_kit_structure()
-        )
-
-        human_report = (
-            self.build_human_readable_drum_kit_report()
-        )
-
-        verification_candidates = (
-            final_verification.get(
-                "all_candidates",
-                [],
-            )
-        )
-
-        structure_by_index = {
-            item.get(
-                "record_index"
-            ): item
-            for item in structure_report
-        }
-
-        # -----------------------------------------------------------
-        # Global mapping confidence by offset
-        # -----------------------------------------------------------
-
-        confidence_by_offset = {}
-
-        for candidate in verification_candidates:
-
-            offset = candidate.get(
-                "relative_offset"
-            )
-
-            if offset is None:
-                continue
-
-            confidence_by_offset[
-                offset
-            ] = candidate
-
-        # -----------------------------------------------------------
-        # Build model for every Drum Kit
-        # -----------------------------------------------------------
-
-        final_model = []
-
-        for kit_index, record in enumerate(
-            records,
-            start=1,
-        ):
-
-            try:
-                raw_bytes = bytes(
-                    record
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                raw_bytes = bytes(
-                    record[
-                        :self.DRUM_KIT_RECORD_SIZE
-                    ]
-                )
-
-            raw_bytes = raw_bytes[
-                :self.DRUM_KIT_RECORD_SIZE
-            ]
-
-            structure = (
-                structure_by_index.get(
-                    kit_index,
-                    {},
-                )
-            )
-
-            # -------------------------------------------------------
-            # Name extraction
-            # -------------------------------------------------------
-
-            kit_name = None
-
-            if isinstance(
-                record,
-                dict,
-            ):
-
-                kit_name = (
-                    record.get(
-                        "name"
-                    )
-                    or record.get(
-                        "drum_kit_name"
-                    )
-                    or record.get(
-                        "kit_name"
-                    )
-                )
-
-            # -------------------------------------------------------
-            # Build parameters
-            # -------------------------------------------------------
-
-            parameters = []
-
-            for offset, value in enumerate(
-                raw_bytes
-            ):
-
-                candidate = (
-                    confidence_by_offset.get(
-                        offset
-                    )
-                )
-
-                parameter_type = (
-                    "unknown"
-                )
-
-                confidence = (
-                    "none"
-                )
-
-                confidence_score = 0.0
-
-                classification = None
-
-                if candidate:
-
-                    classification = candidate.get(
-                        "classification"
-                    )
-
-                    confidence = candidate.get(
-                        "confidence",
-                        "low",
-                    )
-
-                    confidence_score = candidate.get(
-                        "final_confidence_score",
-                        0.0,
-                    )
-
-                    if classification == (
-                        "confirmed_midi_mapping"
-                    ):
-
-                        parameter_type = (
-                            "midi_mapping"
-                        )
-
-                    elif classification == (
-                        "high_confidence_midi_mapping"
-                    ):
-
-                        parameter_type = (
-                            "midi_mapping"
-                        )
-
-                    elif classification == (
-                        "probable_midi_mapping"
-                    ):
-
-                        parameter_type = (
-                            "probable_midi_mapping"
-                        )
-
-                    elif classification == (
-                        "possible_midi_mapping"
-                    ):
-
-                        parameter_type = (
-                            "possible_mapping"
-                        )
-
-                # ---------------------------------------------------
-                # MIDI note
-                # ---------------------------------------------------
-
-                midi_note = None
-                midi_note_name = None
-
-                if (
-                    parameter_type
-                    in (
-                        "midi_mapping",
-                        "probable_midi_mapping",
-                        "possible_mapping",
-                    )
-                    and 0 <= value <= 127
-                ):
-
-                    midi_note = value
-
-                    try:
-                        midi_note_name = (
-                            midi_to_note(
-                                value
-                            )
-                        )
-                    except Exception:
-                        midi_note_name = None
-
-                parameters.append(
-                    {
-                        "offset": offset,
-                        "hex_offset": (
-                            f"0x{offset:02X}"
-                        ),
-                        "value": value,
-                        "hex": (
-                            f"{value:02X}"
-                        ),
-                        "parameter_type": (
-                            parameter_type
-                        ),
-                        "classification": (
-                            classification
-                        ),
-                        "confidence": (
-                            confidence
-                        ),
-                        "confidence_score": round(
-                            confidence_score,
-                            2,
-                        ),
-                        "midi_note": midi_note,
-                        "midi_note_name": (
-                            midi_note_name
-                        ),
-                    }
-                )
-
-            # -------------------------------------------------------
-            # Mapping positions
-            # -------------------------------------------------------
-
-            midi_mapping = []
-
-            probable_mapping = []
-
-            possible_mapping = []
-
-            for parameter in parameters:
-
-                parameter_type = parameter.get(
-                    "parameter_type"
-                )
-
-                if parameter_type == (
-                    "midi_mapping"
-                ):
-
-                    midi_mapping.append(
-                        parameter
-                    )
-
-                elif parameter_type == (
-                    "probable_midi_mapping"
-                ):
-
-                    probable_mapping.append(
-                        parameter
-                    )
-
-                elif parameter_type == (
-                    "possible_mapping"
-                ):
-
-                    possible_mapping.append(
-                        parameter
-                    )
-
-            # -------------------------------------------------------
-            # Field model
-            # -------------------------------------------------------
-
-            fields = []
-
-            for field in structure.get(
-                "mapping_fields",
-                [],
-            ):
-
-                field_id = field.get(
-                    "field_id"
-                )
-
-                offsets = field.get(
-                    "offsets",
-                    [],
-                )
-
-                field_parameters = [
-                    parameter
-                    for parameter
-                    in parameters
-                    if parameter[
-                        "offset"
-                    ]
-                    in offsets
-                ]
-
-                fields.append(
-                    {
-                        "field_id": field_id,
-                        "offsets": offsets,
-                        "start_offset": field.get(
-                            "start_offset"
-                        ),
-                        "end_offset": field.get(
-                            "end_offset"
-                        ),
-                        "field_size": field.get(
-                            "field_size"
-                        ),
-                        "classification": field.get(
-                            "classification"
-                        ),
-                        "score": field.get(
-                            "group_score",
-                            0.0,
-                        ),
-                        "parameters": field_parameters,
-                    }
-                )
-
-            # -------------------------------------------------------
-            # Raw representation
-            # -------------------------------------------------------
-
-            raw_hex = " ".join(
-                f"{value:02X}"
-                for value
-                in raw_bytes
-            )
-
-            # -------------------------------------------------------
-            # Reconstruction score
-            # -------------------------------------------------------
-
-            reconstruction_score = structure.get(
-                "reconstruction_score",
-                0.0,
-            )
-
-            reconstruction_confidence = structure.get(
-                "reconstruction_confidence",
-                "low",
-            )
-
-            # -------------------------------------------------------
-            # Final model object
-            # -------------------------------------------------------
-
-            final_model.append(
-                {
-                    "model_version": (
-                        "#40"
-                    ),
-                    "kit_index": (
-                        kit_index
-                    ),
-                    "kit_name": (
-                        kit_name
-                    ),
-                    "record_size": (
-                        len(raw_bytes)
-                    ),
-                    "raw_bytes": list(
-                        raw_bytes
-                    ),
-                    "raw_hex": raw_hex,
-
-                    "reconstruction": {
-                        "score": (
-                            reconstruction_score
-                        ),
-                        "confidence": (
-                            reconstruction_confidence
-                        ),
-                    },
-
-                    "mapping": {
-                        "confirmed": (
-                            midi_mapping
-                        ),
-                        "probable": (
-                            probable_mapping
-                        ),
-                        "possible": (
-                            possible_mapping
-                        ),
-                    },
-
-                    "fields": fields,
-
-                    "parameters": parameters,
-
-                    "statistics": {
-                        "confirmed_midi_count": (
-                            len(
-                                midi_mapping
-                            )
-                        ),
-                        "probable_midi_count": (
-                            len(
-                                probable_mapping
-                            )
-                        ),
-                        "possible_mapping_count": (
-                            len(
-                                possible_mapping
-                            )
-                        ),
-                        "field_count": (
-                            len(
-                                fields
-                            )
-                        ),
-                        "unknown_parameter_count": (
-                            sum(
-                                1
-                                for parameter
-                                in parameters
-                                if parameter[
-                                    "parameter_type"
-                                ]
-                                == "unknown"
-                            )
-                        ),
-                    },
-
-                    "editing": {
-                        "editable": False,
-                        "write_back": False,
-                        "source_verified": True,
-                    },
-
-                    "warning": (
-                        "This model is analytical only. "
-                        "It does not modify the source "
-                        "PCG/SET file."
-                    ),
-                }
-            )
-
-        return final_model
-
-    def get_final_drum_kit_model(
+    def create_editable_drum_kit_model(
         self,
     ) -> dict:
         """
-        Returns the complete #40 model.
+        #41
+
+        Kreira editable kopiju #40 Drum Kit modela.
+
+        VAŽNO:
+        - Originalni PCG/SET se NE mijenja.
+        - Promjene se rade samo nad kopijom u memoriji.
+        - Write-back u originalni fajl još nije omogućen.
         """
 
-        model = (
-            self.build_final_drum_kit_model()
+        import copy
+
+        source_model = (
+            self.build_complete_drum_kit_model_report()
         )
 
-        return {
-            "model_version": (
-                "#40"
-            ),
-            "drum_kit_count": (
-                len(model)
-            ),
-            "record_size": (
-                self.DRUM_KIT_RECORD_SIZE
-            ),
-            "kits": model,
-            "mapping_status": (
-                self.build_final_mapping_verification_report().get(
-                    "overall_status"
-                )
-            ),
-            "editable": False,
-            "write_back": False,
-            "safe_for_source_file": True,
-        }
+        editable_model = copy.deepcopy(
+            source_model
+        )
 
-    def get_drum_kit_by_index(
+        editable_model[
+            "model_version"
+        ] = "#41"
+
+        editable_model[
+            "editable"
+        ] = True
+
+        editable_model[
+            "write_back"
+        ] = False
+
+        editable_model[
+            "source_file_modified"
+        ] = False
+
+        editable_model[
+            "changes"
+        ] = []
+
+        editable_model[
+            "change_count"
+        ] = 0
+
+        editable_model[
+            "warning"
+        ] = (
+            "Editing is performed only on an "
+            "in-memory copy. The original "
+            "PCG/SET file is never modified."
+        )
+
+        return editable_model
+
+    def set_drum_kit_byte(
         self,
         kit_index: int,
-    ) -> dict | None:
+        relative_offset: int,
+        value: int,
+    ) -> dict:
         """
-        Returns one Drum Kit from the #40 model.
+        #41
+
+        Mijenja jedan byte u editable Drum Kit modelu.
+
+        Ne mijenja originalni PCG/SET fajl.
+
+        Args:
+            kit_index:
+                1-based Drum Kit index.
+
+            relative_offset:
+                Byte offset unutar Drum Kit recorda.
+
+            value:
+                Nova vrijednost 0-255.
         """
 
-        model = (
-            self.build_final_drum_kit_model()
+        if not isinstance(
+            kit_index,
+            int,
+        ):
+            raise TypeError(
+                "kit_index must be an integer."
+            )
+
+        if not isinstance(
+            relative_offset,
+            int,
+        ):
+            raise TypeError(
+                "relative_offset must be an integer."
+            )
+
+        if not isinstance(
+            value,
+            int,
+        ):
+            raise TypeError(
+                "value must be an integer."
+            )
+
+        if value < 0 or value > 255:
+            raise ValueError(
+                "Byte value must be between 0 and 255."
+            )
+
+        editable_model = (
+            self.create_editable_drum_kit_model()
         )
 
-        for kit in model:
+        kits = editable_model.get(
+            "kits",
+            [],
+        )
+
+        target_kit = None
+
+        for kit in kits:
 
             if kit.get(
                 "kit_index"
             ) == kit_index:
 
-                return kit
+                target_kit = kit
+                break
 
-        return None
+        if target_kit is None:
 
-    def get_confirmed_midi_mapping_model(
-        self,
-    ) -> list[dict]:
-        """
-        Returns only confirmed MIDI mapping
-        parameters from the final model.
-        """
+            raise IndexError(
+                f"Drum Kit {kit_index} was not found."
+            )
 
-        model = (
-            self.build_final_drum_kit_model()
+        parameters = target_kit.get(
+            "parameters",
+            [],
         )
 
-        result = []
+        target_parameter = None
 
-        for kit in model:
+        for parameter in parameters:
 
-            confirmed = kit.get(
-                "mapping",
-                {},
-            ).get(
-                "confirmed",
-                [],
+            if parameter.get(
+                "offset"
+            ) == relative_offset:
+
+                target_parameter = parameter
+                break
+
+        if target_parameter is None:
+
+            raise IndexError(
+                "Relative offset "
+                f"{relative_offset} was not found "
+                f"in Drum Kit {kit_index}."
             )
 
-            if not confirmed:
+        old_value = target_parameter.get(
+            "value"
+        )
+
+        # -----------------------------------------------------------
+        # Update parameter
+        # -----------------------------------------------------------
+
+        target_parameter[
+            "value"
+        ] = value
+
+        target_parameter[
+            "hex"
+        ] = f"{value:02X}"
+
+        # -----------------------------------------------------------
+        # Update MIDI information
+        # -----------------------------------------------------------
+
+        parameter_type = (
+            target_parameter.get(
+                "parameter_type"
+            )
+        )
+
+        if (
+            parameter_type
+            in (
+                "midi_mapping",
+                "probable_midi_mapping",
+                "possible_mapping",
+            )
+            and 0 <= value <= 127
+        ):
+
+            target_parameter[
+                "midi_note"
+            ] = value
+
+            try:
+
+                target_parameter[
+                    "midi_note_name"
+                ] = midi_to_note(
+                    value
+                )
+
+            except Exception:
+
+                target_parameter[
+                    "midi_note_name"
+                ] = None
+
+        else:
+
+            target_parameter[
+                "midi_note"
+            ] = None
+
+            target_parameter[
+                "midi_note_name"
+            ] = None
+
+        # -----------------------------------------------------------
+        # Update raw bytes
+        # -----------------------------------------------------------
+
+        raw_bytes = target_kit.get(
+            "raw_bytes",
+            [],
+        )
+
+        if (
+            relative_offset < 0
+            or relative_offset >= len(
+                raw_bytes
+            )
+        ):
+
+            raise IndexError(
+                "Relative offset is outside "
+                "the raw byte array."
+            )
+
+        raw_bytes[
+            relative_offset
+        ] = value
+
+        target_kit[
+            "raw_bytes"
+        ] = raw_bytes
+
+        target_kit[
+            "raw_hex"
+        ] = " ".join(
+            f"{byte:02X}"
+            for byte in raw_bytes
+        )
+
+        # -----------------------------------------------------------
+        # Register change
+        # -----------------------------------------------------------
+
+        change = {
+            "kit_index": kit_index,
+            "relative_offset": relative_offset,
+            "hex_offset": (
+                f"0x{relative_offset:02X}"
+            ),
+            "old_value": old_value,
+            "old_hex": (
+                f"{old_value:02X}"
+                if isinstance(
+                    old_value,
+                    int,
+                )
+                else None
+            ),
+            "new_value": value,
+            "new_hex": f"{value:02X}",
+        }
+
+        editable_model[
+            "changes"
+        ].append(
+            change
+        )
+
+        editable_model[
+            "change_count"
+        ] = len(
+            editable_model[
+                "changes"
+            ]
+        )
+
+        return {
+            "success": True,
+            "kit_index": kit_index,
+            "relative_offset": relative_offset,
+            "old_value": old_value,
+            "new_value": value,
+            "change": change,
+            "model": editable_model,
+            "source_file_modified": False,
+            "write_back": False,
+        }
+
+    def set_drum_kit_midi_note(
+        self,
+        kit_index: int,
+        relative_offset: int,
+        midi_note: int,
+    ) -> dict:
+        """
+        #41
+
+        Sigurniji helper za promjenu MIDI note.
+
+        MIDI vrijednost mora biti 0-127.
+        """
+
+        if not isinstance(
+            midi_note,
+            int,
+        ):
+            raise TypeError(
+                "midi_note must be an integer."
+            )
+
+        if midi_note < 0 or midi_note > 127:
+            raise ValueError(
+                "MIDI note must be between 0 and 127."
+            )
+
+        result = self.set_drum_kit_byte(
+            kit_index=kit_index,
+            relative_offset=relative_offset,
+            value=midi_note,
+        )
+
+        parameter = None
+
+        for item in result[
+            "model"
+        ].get(
+            "kits",
+            [],
+        ):
+
+            if item.get(
+                "kit_index"
+            ) != kit_index:
                 continue
 
-            result.append(
-                {
-                    "kit_index": kit.get(
-                        "kit_index"
-                    ),
-                    "kit_name": kit.get(
-                        "kit_name"
-                    ),
-                    "confirmed_mappings": (
-                        confirmed
-                    ),
-                }
+            for candidate in item.get(
+                "parameters",
+                [],
+            ):
+
+                if candidate.get(
+                    "offset"
+                ) == relative_offset:
+
+                    parameter = candidate
+                    break
+
+        result[
+            "midi_note"
+        ] = midi_note
+
+        result[
+            "midi_note_name"
+        ] = (
+            parameter.get(
+                "midi_note_name"
             )
+            if parameter
+            else None
+        )
 
         return result
 
-    def build_complete_drum_kit_model_report(
+    def validate_editable_drum_kit_model(
         self,
+        model: dict,
     ) -> dict:
         """
-        Complete #40 report.
+        #41
 
-        Ovo je glavni ulaz za budući editor.
+        Provjerava integritet editable modela.
+
+        Ne radi nikakav write-back.
         """
 
-        model = (
-            self.build_final_drum_kit_model()
+        errors = []
+        warnings = []
+
+        if not isinstance(
+            model,
+            dict,
+        ):
+
+            return {
+                "valid": False,
+                "errors": [
+                    "Model must be a dictionary."
+                ],
+                "warnings": [],
+            }
+
+        kits = model.get(
+            "kits",
+            [],
         )
 
-        confirmed_count = 0
-        probable_count = 0
-        possible_count = 0
+        expected_record_size = (
+            self.DRUM_KIT_RECORD_SIZE
+        )
 
-        for kit in model:
+        for kit in kits:
 
-            mapping = kit.get(
-                "mapping",
-                {},
+            kit_index = kit.get(
+                "kit_index"
             )
 
-            confirmed_count += len(
-                mapping.get(
-                    "confirmed",
-                    [],
-                )
+            raw_bytes = kit.get(
+                "raw_bytes",
+                [],
             )
 
-            probable_count += len(
-                mapping.get(
-                    "probable",
-                    [],
+            if len(
+                raw_bytes
+            ) != expected_record_size:
+
+                errors.append(
+                    {
+                        "kit_index": kit_index,
+                        "error": (
+                            "Invalid record size."
+                        ),
+                        "actual_size": len(
+                            raw_bytes
+                        ),
+                        "expected_size": (
+                            expected_record_size
+                        ),
+                    }
                 )
+
+            parameters = kit.get(
+                "parameters",
+                [],
             )
 
-            possible_count += len(
-                mapping.get(
-                    "possible",
-                    [],
+            for parameter in parameters:
+
+                offset = parameter.get(
+                    "offset"
                 )
+
+                value = parameter.get(
+                    "value"
+                )
+
+                if not isinstance(
+                    offset,
+                    int,
+                ):
+
+                    errors.append(
+                        {
+                            "kit_index": kit_index,
+                            "error": (
+                                "Invalid parameter offset."
+                            ),
+                            "offset": offset,
+                        }
+                    )
+
+                    continue
+
+                if (
+                    offset < 0
+                    or offset >= len(
+                        raw_bytes
+                    )
+                ):
+
+                    errors.append(
+                        {
+                            "kit_index": kit_index,
+                            "error": (
+                                "Parameter offset "
+                                "outside record."
+                            ),
+                            "offset": offset,
+                        }
+                    )
+
+                if (
+                    not isinstance(
+                        value,
+                        int,
+                    )
+                    or value < 0
+                    or value > 255
+                ):
+
+                    errors.append(
+                        {
+                            "kit_index": kit_index,
+                            "offset": offset,
+                            "error": (
+                                "Invalid byte value."
+                            ),
+                            "value": value,
+                        }
+                    )
+
+        if model.get(
+            "write_back"
+        ):
+
+            warnings.append(
+                "Write-back flag is enabled."
+            )
+
+        if model.get(
+            "source_file_modified"
+        ):
+
+            warnings.append(
+                "Model reports source file modification."
             )
 
         return {
-            "model_version": (
-                "#40"
+            "valid": (
+                len(errors) == 0
             ),
-            "title": (
-                "Korg Drum Kit Final Internal Model"
+            "errors": errors,
+            "warnings": warnings,
+            "kit_count": len(
+                kits
             ),
-            "description": (
-                "Final analytical model of the "
-                "reconstructed Drum Kit structure."
+            "change_count": model.get(
+                "change_count",
+                0,
             ),
-            "drum_kit_count": (
-                len(model)
+            "write_back": model.get(
+                "write_back",
+                False,
             ),
-            "record_size": (
-                self.DRUM_KIT_RECORD_SIZE
+            "source_file_modified": model.get(
+                "source_file_modified",
+                False,
             ),
-            "mapping_summary": {
-                "confirmed": (
-                    confirmed_count
-                ),
-                "probable": (
-                    probable_count
-                ),
-                "possible": (
-                    possible_count
-                ),
-            },
-            "kits": model,
-            "pipeline": [
-                "#32 Mapping Consistency",
-                "#33 Mapping Relationships",
-                "#34 Mapping Field Detection",
-                "#35 Mapping Field Interpretation",
-                "#36 MIDI Mapping Validation",
-                "#37 Drum Kit Structure Reconstruction",
-                "#38 Human-Readable Drum Kit Report",
-                "#39 Final Mapping Confidence & Verification",
-                "#40 Final Drum Kit Internal Model",
+        }
+
+    def preview_drum_kit_changes(
+        self,
+        model: dict,
+    ) -> list[dict]:
+        """
+        #41
+
+        Vraća samo promjene koje bi bile
+        napravljene na editable modelu.
+
+        Originalni fajl se ne dira.
+        """
+
+        if not isinstance(
+            model,
+            dict,
+        ):
+            return []
+
+        return list(
+            model.get(
+                "changes",
+                [],
+            )
+        )
+
+    def reset_drum_kit_edits(
+        self,
+    ) -> dict:
+        """
+        #41
+
+        Odbacuje sve edit promjene i ponovo
+        gradi čisti editable model iz originalne
+        analize.
+
+        Originalni PCG/SET ostaje nepromijenjen.
+        """
+
+        model = (
+            self.create_editable_drum_kit_model()
+        )
+
+        validation = (
+            self.validate_editable_drum_kit_model(
+                model
+            )
+        )
+
+        return {
+            "success": validation[
+                "valid"
             ],
-            "editor_ready": True,
-            "write_back_ready": False,
+            "model": model,
+            "validation": validation,
+            "changes_removed": True,
             "source_file_modified": False,
-            "warning": (
-                "Editor-ready means the analytical model "
-                "is available for UI development. "
-                "Binary write-back is intentionally disabled."
+            "write_back": False,
+        }
+
+    def build_safe_editor_data(
+        self,
+    ) -> dict:
+        """
+        #41
+
+        Glavni ulaz za budući Drum Kit Editor.
+
+        Editor dobiva:
+        - Drum Kit modele
+        - MIDI mapping
+        - byte parametre
+        - editable kopiju
+        - validation status
+        - change tracking
+
+        Write-back još nije omogućen.
+        """
+
+        model = (
+            self.create_editable_drum_kit_model()
+        )
+
+        validation = (
+            self.validate_editable_drum_kit_model(
+                model
+            )
+        )
+
+        return {
+            "editor_version": "#41",
+            "editor_ready": validation[
+                "valid"
+            ],
+            "editable": True,
+            "write_back": False,
+            "source_file_modified": False,
+            "validation": validation,
+            "change_count": (
+                model.get(
+                    "change_count",
+                    0,
+                )
             ),
+            "model": model,
         }
 ```

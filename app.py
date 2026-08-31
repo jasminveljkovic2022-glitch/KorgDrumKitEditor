@@ -1146,6 +1146,14 @@ class KorgDrumKitEditorGUI:
     # ============================================================
     # MIDI EDIT
     # ============================================================
+    ttk.Button(
+            top,
+            text="Field Editor",
+            command=self.open_field_editor,
+        ).pack(
+            side="left",
+            padx=5,
+        )
 
     def edit_selected_midi(self):
 
@@ -1580,6 +1588,751 @@ class KorgDrumKitEditorGUI:
                 else "Validation failed.",
             )
 
+```python
+    # ============================================================
+    # #50 DRUM KIT FIELD EDITOR GUI
+    # ============================================================
+
+    def open_field_editor(self):
+        """
+        #50
+
+        Otvara GUI za pregled i uređivanje
+        Field strukture odabranog Drum Kita.
+
+        Promjene se rade samo u session memoriji.
+        Originalni SET/PCG fajl se ne mijenja.
+        """
+
+        if self.session is None:
+            messagebox.showwarning(
+                "Field Editor",
+                "No active parser session.",
+            )
+            return
+
+        if self.current_kit_index is None:
+            messagebox.showwarning(
+                "Field Editor",
+                "Select a Drum Kit first.",
+            )
+            return
+
+        parser = self.get_parser()
+
+        if parser is None:
+            messagebox.showerror(
+                "Field Editor",
+                "Korg parser could not be loaded.",
+            )
+            return
+
+        try:
+            fields = parser.build_editor_field_list(
+                self.session,
+                self.current_kit_index,
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                "Field Editor Error",
+                str(exc),
+            )
+            return
+
+        window = tk.Toplevel(
+            self.root
+        )
+
+        window.title(
+            "Drum Kit Field Editor"
+        )
+
+        window.geometry(
+            "1050x650"
+        )
+
+        window.transient(
+            self.root
+        )
+
+        # --------------------------------------------------------
+        # TOP INFORMATION
+        # --------------------------------------------------------
+
+        header = ttk.Frame(
+            window,
+            padding=10,
+        )
+
+        header.pack(
+            fill="x"
+        )
+
+        ttk.Label(
+            header,
+            text=(
+                f"Drum Kit: "
+                f"{self.current_kit_index}"
+            ),
+            font=(
+                "TkDefaultFont",
+                11,
+                "bold",
+            ),
+        ).pack(
+            side="left"
+        )
+
+        ttk.Label(
+            header,
+            text=(
+                f"Fields: {len(fields)}"
+            ),
+        ).pack(
+            side="right"
+        )
+
+        # --------------------------------------------------------
+        # FIELD TABLE
+        # --------------------------------------------------------
+
+        table_frame = ttk.Frame(
+            window,
+            padding=(10, 0),
+        )
+
+        table_frame.pack(
+            fill="both",
+            expand=True,
+        )
+
+        columns = (
+            "field_id",
+            "start",
+            "end",
+            "size",
+            "classification",
+            "score",
+            "parameters",
+        )
+
+        field_tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+
+        headings = {
+            "field_id": "Field ID",
+            "start": "Start Offset",
+            "end": "End Offset",
+            "size": "Size",
+            "classification": "Classification",
+            "score": "Score",
+            "parameters": "Parameters",
+        }
+
+        widths = {
+            "field_id": 100,
+            "start": 110,
+            "end": 110,
+            "size": 80,
+            "classification": 160,
+            "score": 90,
+            "parameters": 100,
+        }
+
+        for column in columns:
+            field_tree.heading(
+                column,
+                text=headings[column],
+            )
+
+            field_tree.column(
+                column,
+                width=widths[column],
+                anchor="center",
+            )
+
+        scrollbar = ttk.Scrollbar(
+            table_frame,
+            orient="vertical",
+            command=field_tree.yview,
+        )
+
+        field_tree.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        field_tree.pack(
+            side="left",
+            fill="both",
+            expand=True,
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y",
+        )
+
+        # --------------------------------------------------------
+        # INSERT FIELDS
+        # --------------------------------------------------------
+
+        for field in fields:
+
+            field_tree.insert(
+                "",
+                "end",
+                values=(
+                    field.get(
+                        "field_id"
+                    ),
+                    field.get(
+                        "start_offset"
+                    ),
+                    field.get(
+                        "end_offset"
+                    ),
+                    field.get(
+                        "field_size"
+                    ),
+                    field.get(
+                        "classification"
+                    ),
+                    field.get(
+                        "score"
+                    ),
+                    field.get(
+                        "parameter_count"
+                    ),
+                ),
+            )
+
+        # --------------------------------------------------------
+        # DETAILS
+        # --------------------------------------------------------
+
+        details = ttk.LabelFrame(
+            window,
+            text="Selected Field",
+            padding=10,
+        )
+
+        details.pack(
+            fill="x",
+            padx=10,
+            pady=10,
+        )
+
+        details_label = ttk.Label(
+            details,
+            text="No field selected.",
+        )
+
+        details_label.pack(
+            anchor="w"
+        )
+
+        # --------------------------------------------------------
+        # FIELD SELECTION
+        # --------------------------------------------------------
+
+        def show_field_details(
+            event=None
+        ):
+
+            selection = field_tree.selection()
+
+            if not selection:
+                return
+
+            item = field_tree.item(
+                selection[0]
+            )
+
+            values = item.get(
+                "values",
+                [],
+            )
+
+            if not values:
+                return
+
+            details_label.config(
+                text=(
+                    f"Field ID: {values[0]}    "
+                    f"Offset: {values[1]} - {values[2]}    "
+                    f"Size: {values[3]}    "
+                    f"Classification: {values[4]}    "
+                    f"Score: {values[5]}    "
+                    f"Parameters: {values[6]}"
+                )
+            )
+
+        field_tree.bind(
+            "<<TreeviewSelect>>",
+            show_field_details,
+        )
+
+        # --------------------------------------------------------
+        # EDIT PARAMETER
+        # --------------------------------------------------------
+
+        def edit_field_parameter():
+
+            selection = field_tree.selection()
+
+            if not selection:
+                messagebox.showwarning(
+                    "Field Editor",
+                    "Select a field first.",
+                    parent=window,
+                )
+                return
+
+            item = field_tree.item(
+                selection[0]
+            )
+
+            values = item.get(
+                "values",
+                [],
+            )
+
+            if not values:
+                return
+
+            try:
+                start_offset = int(
+                    values[1]
+                )
+
+                end_offset = int(
+                    values[2]
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                messagebox.showerror(
+                    "Field Editor",
+                    "Invalid field offsets.",
+                    parent=window,
+                )
+                return
+
+            try:
+                parameters = parser.build_editor_parameter_list(
+                    self.session,
+                    self.current_kit_index,
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "Field Editor",
+                    str(exc),
+                    parent=window,
+                )
+                return
+
+            field_parameters = []
+
+            for parameter in parameters:
+
+                offset = parameter.get(
+                    "offset"
+                )
+
+                try:
+                    offset_int = int(
+                        offset
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                if (
+                    start_offset
+                    <= offset_int
+                    <= end_offset
+                ):
+                    field_parameters.append(
+                        parameter
+                    )
+
+            if not field_parameters:
+                messagebox.showinfo(
+                    "Field Editor",
+                    "No editable parameters were found in this field.",
+                    parent=window,
+                )
+                return
+
+            parameter_window = tk.Toplevel(
+                window
+            )
+
+            parameter_window.title(
+                "Field Parameters"
+            )
+
+            parameter_window.geometry(
+                "900x500"
+            )
+
+            parameter_window.transient(
+                window
+            )
+
+            parameter_tree = ttk.Treeview(
+                parameter_window,
+                columns=(
+                    "offset",
+                    "hex_offset",
+                    "value",
+                    "hex",
+                    "type",
+                    "classification",
+                    "confidence",
+                ),
+                show="headings",
+                selectmode="browse",
+            )
+
+            parameter_headings = {
+                "offset": "Offset",
+                "hex_offset": "HEX Offset",
+                "value": "Value",
+                "hex": "HEX",
+                "type": "Parameter Type",
+                "classification": "Classification",
+                "confidence": "Confidence",
+            }
+
+            parameter_widths = {
+                "offset": 80,
+                "hex_offset": 100,
+                "value": 70,
+                "hex": 70,
+                "type": 170,
+                "classification": 140,
+                "confidence": 90,
+            }
+
+            for column in parameter_headings:
+
+                parameter_tree.heading(
+                    column,
+                    text=parameter_headings[
+                        column
+                    ],
+                )
+
+                parameter_tree.column(
+                    column,
+                    width=parameter_widths[
+                        column
+                    ],
+                    anchor="center",
+                )
+
+            parameter_tree.pack(
+                fill="both",
+                expand=True,
+                padx=10,
+                pady=10,
+            )
+
+            for parameter in field_parameters:
+
+                parameter_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        parameter.get(
+                            "offset"
+                        ),
+                        parameter.get(
+                            "hex_offset"
+                        ),
+                        parameter.get(
+                            "value"
+                        ),
+                        parameter.get(
+                            "hex"
+                        ),
+                        parameter.get(
+                            "parameter_type"
+                        ),
+                        parameter.get(
+                            "classification"
+                        ),
+                        parameter.get(
+                            "confidence_score"
+                        ),
+                    ),
+                )
+
+            # ----------------------------------------------------
+            # EDIT SELECTED VALUE
+            # ----------------------------------------------------
+
+            def edit_parameter_value():
+
+                selection = (
+                    parameter_tree.selection()
+                )
+
+                if not selection:
+                    messagebox.showwarning(
+                        "Parameter Editor",
+                        "Select a parameter first.",
+                        parent=parameter_window,
+                    )
+                    return
+
+                item_id = selection[0]
+
+                item = parameter_tree.item(
+                    item_id
+                )
+
+                item_values = list(
+                    item.get(
+                        "values",
+                        [],
+                    )
+                )
+
+                if not item_values:
+                    return
+
+                try:
+                    offset = int(
+                        item_values[0]
+                    )
+
+                    current_value = int(
+                        item_values[2]
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    messagebox.showerror(
+                        "Parameter Editor",
+                        "Invalid parameter value.",
+                        parent=parameter_window,
+                    )
+                    return
+
+                edit_window = tk.Toplevel(
+                    parameter_window
+                )
+
+                edit_window.title(
+                    "Edit Parameter"
+                )
+
+                edit_window.geometry(
+                    "360x220"
+                )
+
+                edit_window.transient(
+                    parameter_window
+                )
+
+                ttk.Label(
+                    edit_window,
+                    text="Byte Value (0-255)",
+                ).pack(
+                    pady=(20, 5)
+                )
+
+                value_var = tk.StringVar(
+                    value=str(
+                        current_value
+                    )
+                )
+
+                entry = ttk.Entry(
+                    edit_window,
+                    textvariable=value_var,
+                    width=15,
+                )
+
+                entry.pack(
+                    pady=5
+                )
+
+                def apply_parameter_change():
+
+                    try:
+                        new_value = int(
+                            value_var.get()
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        messagebox.showerror(
+                            "Invalid Value",
+                            "Value must be an integer.",
+                            parent=edit_window,
+                        )
+                        return
+
+                    if not 0 <= new_value <= 255:
+                        messagebox.showerror(
+                            "Invalid Value",
+                            "Value must be between 0 and 255.",
+                            parent=edit_window,
+                        )
+                        return
+
+                    try:
+                        result = (
+                            parser.edit_editor_parameter(
+                                self.session,
+                                self.current_kit_index,
+                                offset,
+                                new_value,
+                            )
+                        )
+                    except Exception as exc:
+                        messagebox.showerror(
+                            "Edit Error",
+                            str(exc),
+                            parent=edit_window,
+                        )
+                        return
+
+                    if not result.get(
+                        "success",
+                        False,
+                    ):
+                        messagebox.showerror(
+                            "Edit Failed",
+                            "Parameter could not be changed.",
+                            parent=edit_window,
+                        )
+                        return
+
+                    item_values[2] = new_value
+                    item_values[3] = (
+                        f"{new_value:02X}"
+                    )
+
+                    parameter_tree.item(
+                        item_id,
+                        values=item_values,
+                    )
+
+                    self.modified_label.config(
+                        text=(
+                            "Source file modified: NO"
+                        )
+                    )
+
+                    self.status_label.config(
+                        text=(
+                            "Drum Kit field parameter "
+                            "changed in memory."
+                        )
+                    )
+
+                    edit_window.destroy()
+
+                buttons = ttk.Frame(
+                    edit_window
+                )
+
+                buttons.pack(
+                    pady=20
+                )
+
+                ttk.Button(
+                    buttons,
+                    text="Apply",
+                    command=(
+                        apply_parameter_change
+                    ),
+                ).pack(
+                    side="left",
+                    padx=5,
+                )
+
+                ttk.Button(
+                    buttons,
+                    text="Cancel",
+                    command=(
+                        edit_window.destroy
+                    ),
+                ).pack(
+                    side="left",
+                    padx=5,
+                )
+
+                entry.focus_set()
+
+            ttk.Button(
+                parameter_window,
+                text="Edit Selected Parameter",
+                command=edit_parameter_value,
+            ).pack(
+                pady=(0, 10)
+            )
+
+        # --------------------------------------------------------
+        # BOTTOM BUTTONS
+        # --------------------------------------------------------
+
+        buttons = ttk.Frame(
+            window,
+            padding=10,
+        )
+
+        buttons.pack(
+            fill="x"
+        )
+
+        ttk.Button(
+            buttons,
+            text="Edit Field Parameter",
+            command=edit_field_parameter,
+        ).pack(
+            side="left",
+            padx=5,
+        )
+
+        ttk.Button(
+            buttons,
+            text="Refresh",
+            command=(
+                lambda: (
+                    window.destroy(),
+                    self.open_field_editor(),
+                )
+            ),
+        ).pack(
+            side="left",
+            padx=5,
+        )
+
+        ttk.Button(
+            buttons,
+            text="Close",
+            command=window.destroy,
+        ).pack(
+            side="right",
+            padx=5,
+        )
+```
 
 # ================================================================
 # APPLICATION START
